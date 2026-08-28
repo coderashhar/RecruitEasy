@@ -1,0 +1,317 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  CANDIDATE
+  INTERVIEWER
+  RECRUITER
+  ADMIN
+}
+
+enum ApplicationStatus {
+  APPLIED
+  SCREENING
+  INTERVIEWING
+  OFFER
+  HIRED
+  REJECTED
+}
+
+enum InterviewStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum InterviewParticipantRole {
+  CANDIDATE
+  INTERVIEWER
+  OBSERVER
+}
+
+enum AtsSource {
+  LLM
+  HEURISTIC
+}
+
+enum ExecutionStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  TIMEOUT
+}
+
+enum RecordingStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum FeedbackRecommendation {
+  STRONG_YES
+  YES
+  NO
+  STRONG_NO
+}
+
+enum IntegritySignalType {
+  TAB_BLUR
+  PASTE
+  FULLSCREEN_EXIT
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy & identity
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  jobs      Job[]
+  auditLogs AuditLog[]
+
+  @@map("organizations")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  role      UserRole
+  email     String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  resumes               Resume[]
+  applicationsAsCandidate Application[]        @relation("CandidateApplications")
+  interviewParticipants  InterviewParticipant[]
+  feedback               Feedback[]
+  auditLogs               AuditLog[]
+
+  @@index([orgId])
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Hiring pipeline
+// ---------------------------------------------------------------------------
+
+model Job {
+  id             String   @id @default(cuid())
+  orgId          String
+  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  title          String
+  description    String
+  requiredSkills String[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  applications Application[]
+
+  @@index([orgId])
+  @@map("jobs")
+}
+
+model Application {
+  id          String            @id @default(cuid())
+  jobId       String
+  job         Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidateId String
+  candidate   User              @relation("CandidateApplications", fields: [candidateId], references: [id], onDelete: Cascade)
+  status      ApplicationStatus @default(APPLIED)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  resumes     Resume[]
+  interviews  Interview[]
+
+  @@index([jobId])
+  @@index([candidateId])
+  @@map("applications")
+}
+
+// ---------------------------------------------------------------------------
+// Resume & ATS
+// ---------------------------------------------------------------------------
+
+model Resume {
+  id            String   @id @default(cuid())
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  uploadedById  String
+  uploadedBy    User     @relation(fields: [uploadedById], references: [id])
+  fileKey       String
+  parsedText    String?
+  createdAt     DateTime @default(now())
+
+  atsReports AtsReport[]
+
+  @@index([applicationId])
+  @@map("resumes")
+}
+
+model AtsReport {
+  id              String    @id @default(cuid())
+  resumeId        String
+  resume          Resume    @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  score           Int
+  missingKeywords String[]
+  skillsMatch     Json
+  suggestions     Json
+  source          AtsSource
+  model           String?
+  createdAt       DateTime  @default(now())
+
+  @@index([resumeId])
+  @@map("ats_reports")
+}
+
+// ---------------------------------------------------------------------------
+// Interviews
+// ---------------------------------------------------------------------------
+
+model Interview {
+  id            String           @id @default(cuid())
+  applicationId String
+  application   Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  scheduledAt   DateTime
+  durationMins  Int              @default(60)
+  status        InterviewStatus  @default(SCHEDULED)
+  roomName      String           @unique
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  participants  InterviewParticipant[]
+  codeDocument  CodeDocument?
+  executions    Execution[]
+  recording     Recording?
+  feedback      Feedback[]
+  integritySignals IntegritySignal[]
+
+  @@index([applicationId])
+  @@map("interviews")
+}
+
+model InterviewParticipant {
+  id          String                   @id @default(cuid())
+  interviewId String
+  interview   Interview                @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        InterviewParticipantRole
+
+  @@unique([interviewId, userId])
+  @@map("interview_participants")
+}
+
+// One live shared document per interview — the realtime service holds a
+// single in-memory Y.Doc per room and persists its encoded snapshot here.
+model CodeDocument {
+  id          String    @id @default(cuid())
+  interviewId String    @unique
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  language    String
+  snapshot    Bytes
+  finalCode   String?
+  updatedAt   DateTime  @updatedAt
+
+  @@map("code_documents")
+}
+
+model Execution {
+  id          String          @id @default(cuid())
+  interviewId String
+  interview   Interview       @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  language    String
+  source      String
+  stdin       String?
+  stdout      String?
+  stderr      String?
+  status      ExecutionStatus @default(QUEUED)
+  timeMs      Int?
+  memoryKb    Int?
+  createdAt   DateTime        @default(now())
+
+  @@index([interviewId])
+  @@map("executions")
+}
+
+model Recording {
+  id          String          @id @default(cuid())
+  interviewId String          @unique
+  interview   Interview       @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  egressId    String
+  fileKey     String?
+  durationSec Int?
+  status      RecordingStatus @default(PENDING)
+  createdAt   DateTime        @default(now())
+
+  @@map("recordings")
+}
+
+model Feedback {
+  id             String                  @id @default(cuid())
+  interviewId    String
+  interview      Interview               @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  interviewerId  String
+  interviewer    User                    @relation(fields: [interviewerId], references: [id])
+  rubricScores   Json
+  notes          String?
+  recommendation FeedbackRecommendation
+  createdAt      DateTime                @default(now())
+
+  @@index([interviewId])
+  @@map("feedback")
+}
+
+model IntegritySignal {
+  id          String              @id @default(cuid())
+  interviewId String
+  interview   Interview           @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  type        IntegritySignalType
+  payload     Json?
+  occurredAt  DateTime            @default(now())
+
+  @@index([interviewId])
+  @@map("integrity_signals")
+}
+
+// ---------------------------------------------------------------------------
+// Audit
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id        String       @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  actorId   String?
+  actor     User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action    String
+  target    String?
+  meta      Json?
+  createdAt DateTime     @default(now())
+
+  @@index([orgId])
+  @@map("audit_logs")
+}

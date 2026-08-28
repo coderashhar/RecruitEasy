@@ -1,0 +1,27 @@
+{
+  "name": "interviewhub-ai",
+  "private": true,
+  "version": "0.0.1",
+  "packageManager": "npm@10.9.3",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:generate": "npm run generate --workspace=@interviewhub/db",
+    "db:migrate": "npm run migrate:dev --workspace=@interviewhub/db",
+    "db:studio": "npm run studio --workspace=@interviewhub/db"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,39 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# next.js
+.next/
+out/
+
+# production
+dist/
+build/
+
+# env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# turbo
+.turbo/
+
+# prisma
+packages/db/generated/
+
+# logs
+*.log
+npm-debug.log*
+
+# editor / os
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# testing
+coverage/
+playwright-report/
+test-results/

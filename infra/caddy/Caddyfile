@@ -1,0 +1,8 @@
+# VPS reverse proxy. Terminates TLS (automatic via Let's Encrypt) and routes
+# to the realtime service. Judge0 (infra/judge0, added in Phase 1 step 5)
+# joins this same file, on its own subdomain, bound to the compose network —
+# never exposed on a public port directly.
+
+{$REALTIME_DOMAIN} {
+    reverse_proxy realtime:4000
+}

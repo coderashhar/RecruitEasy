@@ -1,0 +1,34 @@
+# Run from the VPS alongside apps/realtime and (from Phase 1 step 5) the
+# Judge0 stack. `realtime` here must match the service name Caddy proxies to.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      REALTIME_DOMAIN: ${REALTIME_DOMAIN}
+    networks:
+      - interviewhub
+
+  realtime:
+    build:
+      context: ../../apps/realtime
+    restart: unless-stopped
+    env_file:
+      - ../../apps/realtime/.env
+    networks:
+      - interviewhub
+
+networks:
+  interviewhub:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

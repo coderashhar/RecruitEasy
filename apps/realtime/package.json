@@ -1,0 +1,26 @@
+{
+  "name": "@interviewhub/realtime",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@interviewhub/db": "*",
+    "@interviewhub/types": "*",
+    "jsonwebtoken": "^9.0.2",
+    "socket.io": "^4.8.1",
+    "tsx": "^4.23.12",
+    "yjs": "^13.6.20"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^20",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.11"
+  }
+}

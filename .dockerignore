@@ -1,0 +1,43 @@
+# Applies to every image built with a repo-root context (see
+# infra/caddy/docker-compose.yml). Docker only reads .dockerignore from the
+# context root, not from next to the Dockerfile — this file has to live here.
+
+# Real secrets — never bake these into an image layer. Confirmed empirically:
+# without this file, `docker build` copied packages/db/.env and
+# apps/realtime/.env (real local DATABASE_URL) straight into the image.
+#
+# Unlike .gitignore, a bare pattern here matches ONLY the context root, not
+# every directory — this took a second attempt to get right: `.env` alone
+# left apps/realtime/.env and packages/db/.env in the image untouched.
+# The `**/` prefix is required for recursive matching.
+.env
+.env.*
+**/.env
+**/.env.*
+!**/.env.example
+
+# Dependencies — reinstalled in-image via `npm install`; copying the host's
+# node_modules would also pull in host-platform native binaries.
+node_modules/
+**/node_modules/
+
+# VCS / editor / OS noise
+.git/
+.vscode/
+.idea/
+.DS_Store
+
+# Build output and caches — regenerated in-image, not needed as input
+.next/
+**/.next/
+dist/
+**/dist/
+.turbo/
+**/.turbo/
+packages/db/generated/
+
+# Logs, test artifacts
+*.log
+coverage/
+playwright-report/
+test-results/

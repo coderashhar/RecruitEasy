@@ -18,7 +18,11 @@ services:
 
   realtime:
     build:
-      context: ../../apps/realtime
+      # Repo root, not apps/realtime: the Dockerfile COPYs root-level files
+      # (package-lock.json, turbo.json, packages/db, packages/types) that
+      # only exist inside a build context rooted at the repo, not the app.
+      context: ../..
+      dockerfile: apps/realtime/Dockerfile
     restart: unless-stopped
     env_file:
       - ../../apps/realtime/.env

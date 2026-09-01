@@ -76,3 +76,23 @@ export async function getCandidateOverview(userId: string) {
 
   return { applications, upcomingInterviews };
 }
+
+export async function getSchedulableApplications(orgId: string) {
+  return prisma.application.findMany({
+    where: { job: { orgId } },
+    orderBy: { createdAt: "desc" },
+    include: {
+      candidate: { select: { id: true, name: true } },
+      job: { select: { id: true, title: true } },
+    },
+  });
+}
+
+/** Users who may be assigned the INTERVIEWER participant role — never a CANDIDATE. */
+export async function getPotentialInterviewers(orgId: string) {
+  return prisma.user.findMany({
+    where: { orgId, role: { in: ["INTERVIEWER", "RECRUITER", "ADMIN"] } },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, role: true },
+  });
+}

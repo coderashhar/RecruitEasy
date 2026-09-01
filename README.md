@@ -89,6 +89,37 @@ in-memory `Y.Doc` state per interview room — see ADR-002 in the plan.
    (`ADMIN` is intentionally not offered in the onboarding UI — promote via this script or the
    Clerk dashboard.)
 
+8. **Seed sample data** (optional, but the dashboards and scheduling flow are a lot more useful
+   with something in them):
+
+   ```bash
+   npm run db:seed
+   ```
+
+   Creates one organization, a recruiter/interviewer/admin and three candidates (placeholder
+   `clerkId`s — they can't sign in, but everything they own renders), two jobs, three applications
+   at different pipeline stages, and one scheduled interview. Re-running it clears seeded rows
+   first, so it's safe to repeat. Every real account still provisions itself the normal way — sign
+   up, then `/onboarding` — the seed just gives the *other* side of the table something to look at.
+
+## Trying the interview room
+
+1. Sign up two accounts (or promote two seeded-adjacent real accounts with `set-role`, above): one
+   `RECRUITER`, one `INTERVIEWER`.
+2. As the recruiter, go to **Recruiter → Schedule interview**, pick a seeded application, add the
+   interviewer, and submit.
+3. Open the interview from either dashboard's "Scheduled interviews" list — `/interview/<id>`.
+   Opening it as an account that isn't one of the two participants 404s; that's
+   [`interview-access.ts`](apps/web/src/lib/interview-access.ts) enforcing who actually belongs in
+   the room, independently of the join token itself.
+4. Open the same URL in a second browser (or a private window) signed in as the other
+   participant. Typing in one editor should appear in the other in real time, along with presence
+   and chat.
+5. Close both tabs, wait ~10 seconds (the realtime service's snapshot debounce — see
+   [`rooms.ts`](apps/realtime/src/rooms.ts)), then reopen: the code should still be there. Prisma
+   Studio (`npm run db:studio`) will show a non-empty `finalCode` on that interview's
+   `code_documents` row.
+
 ## Deploying
 
 - **`apps/web` → Vercel.** Set the project's Root Directory to `apps/web`

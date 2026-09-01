@@ -2,10 +2,12 @@
 
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { clerkProfile, provisionUser } from "@/lib/provisioning";
 import { DASHBOARD_PATH, isRole, isSelfAssignableRole } from "@/lib/roles";
 
 /**
- * Assigns the caller's own role during onboarding.
+ * Assigns the caller's own role during onboarding, and creates the database row
+ * that every downstream record (applications, interviews, feedback) hangs off.
  *
  * Server Actions are directly invocable regardless of what the UI renders, so
  * every restriction the onboarding screen implies has to be enforced here:
@@ -32,6 +34,18 @@ export async function setRole(formData: FormData) {
   if (isRole(existingRole)) {
     redirect(DASHBOARD_PATH[existingRole]);
   }
+
+  const profile = clerkProfile(user);
+  if (!profile) {
+    throw new Error("Your Clerk account has no email address — add one and try again.");
+  }
+
+  // Database row first, Clerk metadata second. If Clerk fails after this, the
+  // account still has no role, so onboarding is retried and provisionUser is a
+  // no-op the second time. The reverse order is what produces the state this
+  // whole change exists to eliminate: a user with a role and nothing to attach
+  // an application or interview to.
+  await provisionUser({ clerkId: userId, role, ...profile });
 
   await client.users.updateUserMetadata(userId, {
     publicMetadata: { role },

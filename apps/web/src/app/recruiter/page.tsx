@@ -49,7 +49,14 @@ export default async function RecruiterDashboard() {
                 : `${applications.length} application${applications.length === 1 ? "" : "s"} across ${jobs.length} job${jobs.length === 1 ? "" : "s"}.`}
             </CardDescription>
           </div>
-          <Button size="sm" render={<Link href="/recruiter/schedule">Schedule interview</Link>} />
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              render={<Link href="/recruiter/jobs/new">Post job</Link>}
+            />
+            <Button size="sm" render={<Link href="/recruiter/schedule">Schedule interview</Link>} />
+          </div>
         </CardHeader>
         {applications.length > 0 && (
           <Table>

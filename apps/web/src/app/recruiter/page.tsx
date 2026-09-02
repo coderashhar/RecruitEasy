@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -11,20 +10,21 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { ApplicationStatus } from "@interviewhub/db";
+import { ApplicationStatusSelect } from "@/components/pipeline/application-status-select";
 import { getRecruiterPipeline, getUpcomingInterviews } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
 
-// Typed against the real enum (not Record<string, ...>) so a new
-// ApplicationStatus value is a compile error here until it's given a variant,
-// instead of silently falling through to a default look.
-const STATUS_VARIANT: Record<ApplicationStatus, "default" | "secondary" | "outline" | "destructive"> = {
-  APPLIED: "outline",
-  SCREENING: "secondary",
-  INTERVIEWING: "default",
-  OFFER: "default",
-  HIRED: "default",
-  REJECTED: "destructive",
-};
+// The full set of statuses the pipeline select offers. Typed against the real
+// enum via `satisfies` so an added ApplicationStatus value is a compile error
+// here, instead of silently missing from the dropdown.
+const APPLICATION_STATUSES = [
+  "APPLIED",
+  "SCREENING",
+  "INTERVIEWING",
+  "OFFER",
+  "HIRED",
+  "REJECTED",
+] as const satisfies readonly ApplicationStatus[];
 
 export default async function RecruiterDashboard() {
   const { user } = await requireCurrentUser(["RECRUITER", "INTERVIEWER", "ADMIN"]);
@@ -81,9 +81,11 @@ export default async function RecruiterDashboard() {
                     <TableCell className="font-medium">{application.candidate.name}</TableCell>
                     <TableCell>{job.title}</TableCell>
                     <TableCell>
-                      <Badge variant={STATUS_VARIANT[application.status]}>
-                        {application.status}
-                      </Badge>
+                      <ApplicationStatusSelect
+                        applicationId={application.id}
+                        status={application.status}
+                        statuses={APPLICATION_STATUSES}
+                      />
                     </TableCell>
                     <TableCell>{latestReport ? `${latestReport.score}/100` : "—"}</TableCell>
                   </TableRow>

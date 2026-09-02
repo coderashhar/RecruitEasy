@@ -2,11 +2,16 @@ import { describe, test, expect, vi, beforeEach } from "vitest";
 
 const findFirstJob = vi.fn();
 const findFirstUser = vi.fn();
+const findFirstApplication = vi.fn();
 const createApplication = vi.fn();
+const updateApplication = vi.fn();
 const createAuditLog = vi.fn();
 
 const tx = {
-  application: { create: (...args: unknown[]) => createApplication(...args) },
+  application: {
+    create: (...args: unknown[]) => createApplication(...args),
+    update: (...args: unknown[]) => updateApplication(...args),
+  },
   auditLog: { create: (...args: unknown[]) => createAuditLog(...args) },
 };
 
@@ -25,11 +30,14 @@ vi.mock("@interviewhub/db", () => ({
   prisma: {
     job: { findFirst: (...args: unknown[]) => findFirstJob(...args) },
     user: { findFirst: (...args: unknown[]) => findFirstUser(...args) },
+    application: { findFirst: (...args: unknown[]) => findFirstApplication(...args) },
     $transaction: (cb: (tx: unknown) => unknown) => cb(tx),
   },
 }));
 
-const { createApplicationForOrg, ApplicationError } = await import("./applications.js");
+const { createApplicationForOrg, updateApplicationStatus, ApplicationError } = await import(
+  "./applications.js"
+);
 
 const ORG_ID = "org_1";
 const ACTOR_ID = "user_recruiter";
@@ -38,7 +46,9 @@ const input = { jobId: "job_1", candidateId: "candidate_1" };
 beforeEach(() => {
   findFirstJob.mockReset();
   findFirstUser.mockReset();
+  findFirstApplication.mockReset();
   createApplication.mockReset();
+  updateApplication.mockReset();
   createAuditLog.mockReset();
 
   findFirstJob.mockResolvedValue({ id: "job_1" });
@@ -115,5 +125,58 @@ describe("createApplicationForOrg", () => {
     await expect(createApplicationForOrg(ORG_ID, ACTOR_ID, input)).rejects.not.toThrow(
       ApplicationError,
     );
+  });
+});
+
+describe("updateApplicationStatus", () => {
+  const statusInput = { applicationId: "app_1", status: "OFFER" as const };
+
+  beforeEach(() => {
+    findFirstApplication.mockResolvedValue({ id: "app_1", status: "INTERVIEWING" });
+    updateApplication.mockResolvedValue({ id: "app_1", status: "OFFER" });
+  });
+
+  test("application from another org -> rejected before any write", async () => {
+    findFirstApplication.mockResolvedValue(null);
+
+    await expect(updateApplicationStatus(ORG_ID, ACTOR_ID, statusInput)).rejects.toThrow(
+      ApplicationError,
+    );
+    expect(updateApplication).not.toHaveBeenCalled();
+    // The org filter reaches through the job relation, not a client-side check.
+    expect(findFirstApplication).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "app_1", job: { orgId: ORG_ID } } }),
+    );
+  });
+
+  test("valid input: updates the status and records the transition in one audit log", async () => {
+    const result = await updateApplicationStatus(ORG_ID, ACTOR_ID, statusInput);
+
+    expect(result).toEqual({ id: "app_1", status: "OFFER" });
+    expect(updateApplication).toHaveBeenCalledWith({
+      where: { id: "app_1" },
+      data: { status: "OFFER" },
+    });
+    expect(createAuditLog).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        orgId: ORG_ID,
+        actorId: ACTOR_ID,
+        action: "application.status_changed",
+        target: "app_1",
+        meta: { from: "INTERVIEWING", to: "OFFER" },
+      }),
+    });
+  });
+
+  // Deliberately no transition-matrix test: any status to any other is a
+  // legitimate recruiter correction, unlike the interview lifecycle's real
+  // transition constraints.
+  test("moving backwards (e.g. REJECTED -> SCREENING) is allowed", async () => {
+    findFirstApplication.mockResolvedValue({ id: "app_1", status: "REJECTED" });
+    updateApplication.mockResolvedValue({ id: "app_1", status: "SCREENING" });
+
+    await expect(
+      updateApplicationStatus(ORG_ID, ACTOR_ID, { applicationId: "app_1", status: "SCREENING" }),
+    ).resolves.toEqual({ id: "app_1", status: "SCREENING" });
   });
 });

@@ -1,7 +1,10 @@
 import "server-only";
 
 import { Prisma, prisma, type Application } from "@interviewhub/db";
-import type { CreateApplicationInput } from "@interviewhub/types";
+import type {
+  CreateApplicationInput,
+  UpdateApplicationStatusInput,
+} from "@interviewhub/types";
 
 export class ApplicationError extends Error {}
 
@@ -56,4 +59,48 @@ export async function createApplicationForOrg(
     }
     throw err;
   }
+}
+
+/**
+ * Moves an application to a new status — this is what records the hiring
+ * decision (PRD workflow step 10: OFFER / HIRED / REJECTED).
+ *
+ * No transition table: unlike interview lifecycle (scheduled interviews carry
+ * real-world consequences — a room, a token, other people's calendars — that
+ * make an illegal transition actively harmful), an application's status is a
+ * single label a recruiter is directly setting by hand. Any status to any
+ * other is a legitimate correction (moving someone back from REJECTED to
+ * SCREENING because a decision was reversed is a real, valid action, not a
+ * bug to guard against).
+ */
+export async function updateApplicationStatus(
+  orgId: string,
+  actorId: string,
+  input: UpdateApplicationStatusInput,
+): Promise<Application> {
+  const application = await prisma.application.findFirst({
+    where: { id: input.applicationId, job: { orgId } },
+  });
+  if (!application) {
+    throw new ApplicationError("Application not found in your organization.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.application.update({
+      where: { id: application.id },
+      data: { status: input.status },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        orgId,
+        actorId,
+        action: "application.status_changed",
+        target: application.id,
+        meta: { from: application.status, to: input.status },
+      },
+    });
+
+    return updated;
+  });
 }

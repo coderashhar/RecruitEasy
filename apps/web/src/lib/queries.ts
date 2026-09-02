@@ -89,6 +89,23 @@ export async function getSchedulableApplications(orgId: string) {
   });
 }
 
+/** Candidates in the org — the only users who may be attached to an application. */
+export async function getCandidatesInOrg(orgId: string) {
+  return prisma.user.findMany({
+    where: { orgId, role: "CANDIDATE" },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, email: true },
+  });
+}
+
+export async function getJobsInOrg(orgId: string) {
+  return prisma.job.findMany({
+    where: { orgId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, title: true },
+  });
+}
+
 /** Users who may be assigned the INTERVIEWER participant role — never a CANDIDATE. */
 export async function getPotentialInterviewers(orgId: string) {
   return prisma.user.findMany({

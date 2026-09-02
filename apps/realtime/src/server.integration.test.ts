@@ -75,19 +75,21 @@ describe("realtime server (integration, real DB + real sockets)", () => {
   let candidateId: string;
   let interviewerId: string;
   let jobId: string;
+  let applicationId: string;
 
   // Each test gets its own interview/room — sharing one across tests would
   // let a later test's assertions see an earlier test's accumulated Y.Doc
   // state (this was caught empirically: a shared-room draft of this suite
   // had the persistence test see "still aliveprint('hello')persisted..."
   // instead of just its own edit).
+  //
+  // The Application is shared rather than per-interview: it's unique on
+  // (jobId, candidateId), and one application legitimately has many interview
+  // rounds. Only the Interview needs to be fresh for the isolation above.
   async function createInterview(): Promise<string> {
-    const application = await prisma.application.create({
-      data: { jobId, candidateId, status: "INTERVIEWING" },
-    });
     const interview = await prisma.interview.create({
       data: {
-        applicationId: application.id,
+        applicationId,
         scheduledAt: new Date(),
         roomName: `it-room-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         status: "IN_PROGRESS",
@@ -123,6 +125,11 @@ describe("realtime server (integration, real DB + real sockets)", () => {
       data: { orgId, title: "IT Role", description: "test", requiredSkills: [] },
     });
     jobId = job.id;
+
+    const application = await prisma.application.create({
+      data: { jobId, candidateId, status: "INTERVIEWING" },
+    });
+    applicationId = application.id;
   });
 
   afterAll(async () => {

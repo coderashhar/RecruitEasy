@@ -55,6 +55,11 @@ export default async function RecruiterDashboard() {
               variant="outline"
               render={<Link href="/recruiter/jobs/new">Post job</Link>}
             />
+            <Button
+              size="sm"
+              variant="outline"
+              render={<Link href="/recruiter/applications/new">Add candidate</Link>}
+            />
             <Button size="sm" render={<Link href="/recruiter/schedule">Schedule interview</Link>} />
           </div>
         </CardHeader>

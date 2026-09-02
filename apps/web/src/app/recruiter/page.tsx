@@ -10,10 +10,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { ApplicationStatus } from "@interviewhub/db";
 import { getRecruiterPipeline, getUpcomingInterviews } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
 
-const STATUS_VARIANT: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
+// Typed against the real enum (not Record<string, ...>) so a new
+// ApplicationStatus value is a compile error here until it's given a variant,
+// instead of silently falling through to a default look.
+const STATUS_VARIANT: Record<ApplicationStatus, "default" | "secondary" | "outline" | "destructive"> = {
   APPLIED: "outline",
   SCREENING: "secondary",
   INTERVIEWING: "default",
@@ -65,7 +69,7 @@ export default async function RecruiterDashboard() {
                     <TableCell className="font-medium">{application.candidate.name}</TableCell>
                     <TableCell>{job.title}</TableCell>
                     <TableCell>
-                      <Badge variant={STATUS_VARIANT[application.status] ?? "outline"}>
+                      <Badge variant={STATUS_VARIANT[application.status]}>
                         {application.status}
                       </Badge>
                     </TableCell>

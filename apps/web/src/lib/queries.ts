@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@interviewhub/db";
+import { INTERVIEWER_CAPABLE_ROLES } from "@interviewhub/types";
 
 /**
  * Read side for both dashboards.
@@ -91,7 +92,7 @@ export async function getSchedulableApplications(orgId: string) {
 /** Users who may be assigned the INTERVIEWER participant role — never a CANDIDATE. */
 export async function getPotentialInterviewers(orgId: string) {
   return prisma.user.findMany({
-    where: { orgId, role: { in: ["INTERVIEWER", "RECRUITER", "ADMIN"] } },
+    where: { orgId, role: { in: [...INTERVIEWER_CAPABLE_ROLES] } },
     orderBy: { name: "asc" },
     select: { id: true, name: true, role: true },
   });

@@ -11,6 +11,15 @@ export const supportedLanguageSchema = z.enum([
 ]);
 export type SupportedLanguage = z.infer<typeof supportedLanguageSchema>;
 
+/**
+ * What a fresh CodeDocument is created with before anyone picks a language.
+ * Shared across the process boundary: apps/realtime/src/rooms.ts falls back
+ * to this when persisting a snapshot with no language set yet, and the web
+ * editor (interview-room.tsx) needs the same value so its language picker
+ * isn't lying about what a brand-new room will actually persist as.
+ */
+export const DEFAULT_LANGUAGE: SupportedLanguage = "javascript";
+
 export const executeRequestSchema = z.object({
   interviewId: z.string().min(1),
   language: supportedLanguageSchema,

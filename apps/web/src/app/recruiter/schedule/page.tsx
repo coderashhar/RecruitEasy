@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ScheduledAtField } from "@/components/schedule/scheduled-at-field";
 import { getPotentialInterviewers, getSchedulableApplications } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
 import { scheduleInterview } from "./actions";
@@ -43,10 +44,7 @@ export default async function SchedulePage() {
             )}
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="scheduledAt">Date &amp; time</Label>
-            <Input id="scheduledAt" name="scheduledAt" type="datetime-local" required />
-          </div>
+          <ScheduledAtField />
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="durationMins">Duration (minutes)</Label>

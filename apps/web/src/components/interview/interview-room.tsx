@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { InterviewParticipantRole } from "@interviewhub/db";
+import { DEFAULT_LANGUAGE } from "@interviewhub/types";
 import { SocketYjsProvider } from "./socket-yjs-provider";
 
 // Monaco measures the DOM and touches `window` on load, so it cannot be
@@ -39,11 +40,6 @@ interface PresenceEntry {
   userId: string;
   role: string;
 }
-
-// rooms.ts's own default when a room has no saved CodeDocument yet — matched
-// here so the editor's language picker isn't lying about what a fresh room
-// will actually persist as.
-const DEFAULT_LANGUAGE = "javascript";
 
 export function InterviewRoom({ interviewId, token, role }: InterviewRoomProps) {
   const [provider, setProvider] = useState<SocketYjsProvider | null>(null);

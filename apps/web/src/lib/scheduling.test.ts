@@ -3,6 +3,7 @@ import type { ScheduleInterviewInput } from "@interviewhub/types";
 
 const findFirstApplication = vi.fn();
 const findManyUser = vi.fn();
+const findManyParticipant = vi.fn();
 const createInterview = vi.fn();
 const createAuditLog = vi.fn();
 
@@ -18,6 +19,7 @@ vi.mock("@interviewhub/db", () => ({
   prisma: {
     application: { findFirst: (...args: unknown[]) => findFirstApplication(...args) },
     user: { findMany: (...args: unknown[]) => findManyUser(...args) },
+    interviewParticipant: { findMany: (...args: unknown[]) => findManyParticipant(...args) },
     $transaction: (cb: (tx: unknown) => unknown) => cb(tx),
   },
 }));
@@ -40,6 +42,8 @@ function input(overrides: Partial<ScheduleInterviewInput> = {}): ScheduleIntervi
 beforeEach(() => {
   findFirstApplication.mockReset();
   findManyUser.mockReset();
+  findManyParticipant.mockReset();
+  findManyParticipant.mockResolvedValue([]); // no conflicts, by default
   createInterview.mockReset();
   createAuditLog.mockReset();
 });
@@ -141,5 +145,54 @@ describe("scheduleInterviewForOrg", () => {
     );
     const participants = createInterview.mock.calls[0][0].data.participants.create;
     expect(participants).toHaveLength(2); // candidate + one interviewer, not two
+  });
+
+  describe("interviewer double-booking", () => {
+    test("an interviewer with an overlapping SCHEDULED interview -> rejected", async () => {
+      findFirstApplication.mockResolvedValue({ id: "app_1", candidateId: "candidate_1" });
+      findManyUser.mockResolvedValue([{ id: "user_interviewer" }]);
+      // 10:30-11:30 overlaps the requested 10:00-11:00 window.
+      findManyParticipant.mockResolvedValue([
+        { interview: { scheduledAt: new Date("2026-10-01T10:30:00Z"), durationMins: 60 } },
+      ]);
+
+      await expect(scheduleInterviewForOrg(ORG_ID, ACTOR_ID, input())).rejects.toThrow(
+        SchedulingError,
+      );
+      expect(createInterview).not.toHaveBeenCalled();
+    });
+
+    test("an interviewer whose existing interview ends exactly when this one starts -> allowed", async () => {
+      findFirstApplication.mockResolvedValue({ id: "app_1", candidateId: "candidate_1" });
+      findManyUser.mockResolvedValue([{ id: "user_interviewer" }]);
+      // 09:00-10:00 ends exactly at the requested 10:00 start — back-to-back,
+      // not overlapping.
+      findManyParticipant.mockResolvedValue([
+        { interview: { scheduledAt: new Date("2026-10-01T09:00:00Z"), durationMins: 60 } },
+      ]);
+      createInterview.mockResolvedValue({ id: "interview_1" });
+
+      await expect(scheduleInterviewForOrg(ORG_ID, ACTOR_ID, input())).resolves.toEqual({
+        id: "interview_1",
+      });
+    });
+
+    test("only SCHEDULED interviews are checked — a CANCELLED slot doesn't block rebooking", async () => {
+      findFirstApplication.mockResolvedValue({ id: "app_1", candidateId: "candidate_1" });
+      findManyUser.mockResolvedValue([{ id: "user_interviewer" }]);
+      createInterview.mockResolvedValue({ id: "interview_1" });
+
+      await scheduleInterviewForOrg(ORG_ID, ACTOR_ID, input());
+
+      // The status filter belongs in the query itself, not a client-side
+      // check applied to whatever comes back.
+      expect(findManyParticipant).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            interview: expect.objectContaining({ status: "SCHEDULED" }),
+          }),
+        }),
+      );
+    });
   });
 });

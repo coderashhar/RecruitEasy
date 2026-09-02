@@ -2,16 +2,46 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import { prisma, type Interview } from "@interviewhub/db";
-import type { ScheduleInterviewInput } from "@interviewhub/types";
+import { INTERVIEWER_CAPABLE_ROLES, type ScheduleInterviewInput } from "@interviewhub/types";
 
 export class SchedulingError extends Error {}
 
 /**
- * User roles allowed to sit in an interview as the INTERVIEWER participant.
- * RECRUITER and ADMIN are included because either may run a live interview
- * themselves; CANDIDATE never is — a candidate cannot interview themselves.
+ * True if any of `interviewerIds` already has a SCHEDULED interview whose
+ * [start, end) window overlaps [scheduledAt, scheduledAt + durationMins).
+ *
+ * Application-level, not a DB constraint — Postgres can enforce this
+ * atomically with an EXCLUDE USING gist constraint, but that's a schema
+ * migration this session doesn't need to take on for the concurrent-race
+ * case to be closed too. This check still closes the common case (two
+ * separate, non-concurrent schedule calls) that today has zero guard at all.
  */
-const INTERVIEWER_CAPABLE_ROLES = ["INTERVIEWER", "RECRUITER", "ADMIN"] as const;
+async function findInterviewerConflict(
+  interviewerIds: string[],
+  scheduledAt: Date,
+  durationMins: number,
+): Promise<boolean> {
+  const requestedEnd = new Date(scheduledAt.getTime() + durationMins * 60_000);
+
+  // Superset fetch: any of this interviewer's SCHEDULED interviews starting
+  // before our window ends. Narrowed to a true overlap in JS below, since
+  // Prisma can't filter on `scheduledAt + durationMins` in a `where` clause.
+  const candidates = await prisma.interviewParticipant.findMany({
+    where: {
+      userId: { in: interviewerIds },
+      role: "INTERVIEWER",
+      interview: { status: "SCHEDULED", scheduledAt: { lt: requestedEnd } },
+    },
+    select: { interview: { select: { scheduledAt: true, durationMins: true } } },
+  });
+
+  return candidates.some(({ interview }) => {
+    const existingEnd = new Date(
+      interview.scheduledAt.getTime() + interview.durationMins * 60_000,
+    );
+    return existingEnd > scheduledAt;
+  });
+}
 
 /**
  * Validates and creates an Interview plus its participants, all inside one org.
@@ -45,6 +75,10 @@ export async function scheduleInterviewForOrg(
   });
   if (validInterviewers.length !== interviewerIds.length) {
     throw new SchedulingError("One or more interviewers are invalid for this organization.");
+  }
+
+  if (await findInterviewerConflict(interviewerIds, input.scheduledAt, input.durationMins)) {
+    throw new SchedulingError("One or more interviewers are already booked at that time.");
   }
 
   return prisma.$transaction(async (tx) => {

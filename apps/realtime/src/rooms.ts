@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 import { prisma } from "@interviewhub/db";
+import { DEFAULT_LANGUAGE } from "@interviewhub/types";
 
 const SNAPSHOT_DEBOUNCE_MS = 10_000;
 
@@ -22,7 +23,7 @@ async function loadSnapshot(interviewId: string): Promise<Uint8Array | null> {
 async function persistSnapshot(interviewId: string, doc: Y.Doc): Promise<void> {
   const snapshot = Buffer.from(Y.encodeStateAsUpdate(doc));
   const finalCode = doc.getText("code").toString();
-  const language = (doc.getMap("meta").get("language") as string | undefined) ?? "javascript";
+  const language = (doc.getMap("meta").get("language") as string | undefined) ?? DEFAULT_LANGUAGE;
 
   await prisma.codeDocument.upsert({
     where: { interviewId },

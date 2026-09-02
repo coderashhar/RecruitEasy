@@ -2,8 +2,10 @@ import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { InterviewStatus } from "@interviewhub/db";
+import { InterviewStatusActions } from "@/components/interview/interview-status-actions";
 import { getInterviewDetail } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
+import { RescheduleForm } from "./reschedule-form";
 
 const STATUS_VARIANT: Record<InterviewStatus, "default" | "secondary" | "outline" | "destructive"> = {
   SCHEDULED: "outline",
@@ -27,10 +29,15 @@ export default async function InterviewDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { user } = await requireCurrentUser(["RECRUITER", "INTERVIEWER", "ADMIN"]);
+  const { user, role } = await requireCurrentUser(["RECRUITER", "INTERVIEWER", "ADMIN"]);
 
   const interview = await getInterviewDetail(user.orgId, id);
   if (!interview) notFound();
+
+  // INTERVIEWER can view this page (they may need to review it) but doesn't
+  // own pipeline decisions — matches scheduleInterview/changeInterviewStatus's
+  // own RECRUITER/ADMIN-only restriction.
+  const canManage = role === "RECRUITER" || role === "ADMIN";
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
@@ -50,6 +57,18 @@ export default async function InterviewDetailPage({
           </div>
           <Badge variant={STATUS_VARIANT[interview.status]}>{interview.status}</Badge>
         </CardHeader>
+        {canManage && (
+          <CardContent className="flex flex-col gap-4">
+            <InterviewStatusActions interviewId={interview.id} status={interview.status} />
+            {interview.status === "SCHEDULED" && (
+              <RescheduleForm
+                interviewId={interview.id}
+                scheduledAt={interview.scheduledAt}
+                durationMins={interview.durationMins}
+              />
+            )}
+          </CardContent>
+        )}
       </Card>
 
       <Card>

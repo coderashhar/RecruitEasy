@@ -24,9 +24,22 @@ export function localDateTimeToIso(value: string): string {
   return value ? new Date(value).toISOString() : "";
 }
 
-export function ScheduledAtField() {
+/**
+ * The inverse, for prefilling a reschedule form: a datetime-local input's
+ * `defaultValue` must be a local-time string with no timezone, and the plain
+ * Date getters (getFullYear/getHours/...) already return components in
+ * *this* runtime's local timezone — which, in the browser, is correctly the
+ * recruiter's own. Building the string by hand (not toISOString, which is
+ * UTC) is what keeps it displaying the instant the recruiter actually set.
+ */
+export function dateToLocalDateTimeValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function ScheduledAtField({ defaultValue }: { defaultValue?: Date } = {}) {
   const localInputId = useId();
-  const [isoValue, setIsoValue] = useState("");
+  const [isoValue, setIsoValue] = useState(defaultValue ? defaultValue.toISOString() : "");
 
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
     setIsoValue(localDateTimeToIso(event.target.value));
@@ -35,7 +48,13 @@ export function ScheduledAtField() {
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={localInputId}>Date &amp; time</Label>
-      <Input id={localInputId} type="datetime-local" required onChange={handleChange} />
+      <Input
+        id={localInputId}
+        type="datetime-local"
+        required
+        defaultValue={defaultValue ? dateToLocalDateTimeValue(defaultValue) : undefined}
+        onChange={handleChange}
+      />
       <input type="hidden" name="scheduledAt" value={isoValue} />
     </div>
   );

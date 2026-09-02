@@ -17,6 +17,19 @@ export const scheduleInterviewSchema = z.object({
 });
 export type ScheduleInterviewInput = z.infer<typeof scheduleInterviewSchema>;
 
+export const rescheduleInterviewSchema = z.object({
+  interviewId: z.string().min(1),
+  scheduledAt: z.coerce.date(),
+  durationMins: z.number().int().min(15).max(240),
+});
+export type RescheduleInterviewInput = z.infer<typeof rescheduleInterviewSchema>;
+
+export const updateInterviewStatusSchema = z.object({
+  interviewId: z.string().min(1),
+  status: interviewStatusSchema,
+});
+export type UpdateInterviewStatusInput = z.infer<typeof updateInterviewStatusSchema>;
+
 // Server → realtime service, and realtime service → clients in a room.
 export const interviewTokenClaimsSchema = z.object({
   interviewId: z.string().min(1),

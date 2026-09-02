@@ -51,7 +51,12 @@ export async function getUpcomingInterviews(orgId: string) {
 }
 
 export async function getCandidateOverview(userId: string) {
-  const [applications, upcomingInterviews] = await Promise.all([
+  // One timestamp for both queries: computing `new Date()` separately in each
+  // leaves a sliver between them where an interview starting right now could
+  // land in both lists, or in neither.
+  const now = new Date();
+
+  const [applications, upcomingInterviews, pastInterviews] = await Promise.all([
     prisma.application.findMany({
       where: { candidateId: userId },
       orderBy: { createdAt: "desc" },
@@ -67,15 +72,25 @@ export async function getCandidateOverview(userId: string) {
     prisma.interview.findMany({
       where: {
         status: "SCHEDULED",
-        scheduledAt: { gte: new Date() },
+        scheduledAt: { gte: now },
         participants: { some: { userId } },
       },
       orderBy: { scheduledAt: "asc" },
       include: { application: { include: { job: true } } },
     }),
+    // The exact complement of the upcoming query: anything no longer
+    // SCHEDULED (completed, cancelled, no-show) or whose slot has passed.
+    prisma.interview.findMany({
+      where: {
+        participants: { some: { userId } },
+        OR: [{ status: { not: "SCHEDULED" } }, { scheduledAt: { lt: now } }],
+      },
+      orderBy: { scheduledAt: "desc" },
+      include: { application: { include: { job: true } } },
+    }),
   ]);
 
-  return { applications, upcomingInterviews };
+  return { applications, upcomingInterviews, pastInterviews };
 }
 
 export async function getSchedulableApplications(orgId: string) {

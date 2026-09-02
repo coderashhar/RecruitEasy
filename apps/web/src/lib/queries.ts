@@ -128,6 +128,10 @@ export async function getInterviewDetail(orgId: string, interviewId: string) {
       },
       codeDocument: true,
       integritySignals: { orderBy: { occurredAt: "asc" } },
+      feedback: {
+        orderBy: { createdAt: "desc" },
+        include: { interviewer: { select: { id: true, name: true } } },
+      },
     },
   });
 }

@@ -1,12 +1,18 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { rescheduleInterviewSchema, updateInterviewStatusSchema } from "@interviewhub/types";
+import {
+  rescheduleInterviewSchema,
+  submitFeedbackSchema,
+  updateInterviewStatusSchema,
+} from "@interviewhub/types";
+import { FeedbackError, submitFeedback } from "@/lib/feedback";
 import {
   LifecycleError,
   rescheduleInterview as rescheduleInterviewForOrg,
   updateInterviewStatus as updateInterviewStatusForOrg,
 } from "@/lib/interview-lifecycle";
+import { ROLES } from "@/lib/roles";
 import { requireCurrentUser } from "@/lib/users";
 
 /**
@@ -51,6 +57,40 @@ export async function rescheduleInterviewAction(formData: FormData) {
     await rescheduleInterviewForOrg(user.orgId, user.id, parsed.data);
   } catch (err) {
     if (err instanceof LifecycleError) throw new Error(err.message);
+    throw err;
+  }
+
+  revalidatePath(`/recruiter/interviews/${parsed.data.interviewId}`);
+}
+
+/**
+ * Deliberately gated by ROLES (any signed-in role), not RECRUITER/ADMIN:
+ * eligibility here is per-interview, not per-platform-role, and submitFeedback
+ * does the real check against the INTERVIEWER participant row. A RECRUITER who
+ * actually sat in as the interviewer should be able to submit; a CANDIDATE
+ * invoking this Server Action directly for their own interview must not.
+ */
+export async function submitFeedbackAction(formData: FormData) {
+  const { user } = await requireCurrentUser(ROLES);
+
+  const parsed = submitFeedbackSchema.safeParse({
+    interviewId: formData.get("interviewId"),
+    rubricScores: {
+      coding: Number(formData.get("coding")),
+      problemSolving: Number(formData.get("problemSolving")),
+      communication: Number(formData.get("communication")),
+    },
+    notes: formData.get("notes") || undefined,
+    recommendation: formData.get("recommendation"),
+  });
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  try {
+    await submitFeedback(user.id, parsed.data);
+  } catch (err) {
+    if (err instanceof FeedbackError) throw new Error(err.message);
     throw err;
   }
 

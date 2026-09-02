@@ -3,8 +3,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { InterviewStatus } from "@interviewhub/db";
 import { InterviewStatusActions } from "@/components/interview/interview-status-actions";
+import { RUBRIC_CRITERIA } from "@interviewhub/types";
 import { getInterviewDetail } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
+import { FeedbackForm } from "./feedback-form";
 import { RescheduleForm } from "./reschedule-form";
 
 const STATUS_VARIANT: Record<InterviewStatus, "default" | "secondary" | "outline" | "destructive"> = {
@@ -17,6 +19,13 @@ const STATUS_VARIANT: Record<InterviewStatus, "default" | "secondary" | "outline
 
 // Advisory-only, per interview-room.tsx and the PRD's anti-cheat risk
 // mitigation — shown here as a plain log, never as a verdict on the candidate.
+const RECOMMENDATION_LABEL: Record<string, string> = {
+  STRONG_YES: "Strong yes",
+  YES: "Yes",
+  NO: "No",
+  STRONG_NO: "Strong no",
+};
+
 const INTEGRITY_SIGNAL_LABEL: Record<string, string> = {
   TAB_BLUR: "Switched away from the tab",
   PASTE: "Pasted into the editor",
@@ -38,6 +47,14 @@ export default async function InterviewDetailPage({
   // own pipeline decisions — matches scheduleInterview/changeInterviewStatus's
   // own RECRUITER/ADMIN-only restriction.
   const canManage = role === "RECRUITER" || role === "ADMIN";
+
+  // Eligibility to give feedback is per-interview, not per-platform-role —
+  // the same boundary submitFeedback enforces server-side. A recruiter who
+  // actually sat in as the interviewer gets the form; one who didn't doesn't.
+  const isInterviewerHere = interview.participants.some(
+    (participant) => participant.userId === user.id && participant.role === "INTERVIEWER",
+  );
+  const myFeedback = interview.feedback.find((entry) => entry.interviewerId === user.id);
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
@@ -124,6 +141,53 @@ export default async function InterviewDetailPage({
             ))}
           </CardContent>
         )}
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Feedback</CardTitle>
+          <CardDescription>
+            {interview.feedback.length === 0
+              ? "No feedback submitted yet."
+              : `${interview.feedback.length} submitted.`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-5">
+          {interview.feedback.map((entry) => {
+            const scores = entry.rubricScores as Record<string, number>;
+            return (
+              <div key={entry.id} className="flex flex-col gap-1.5 rounded-md border p-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{entry.interviewer.name}</span>
+                  <Badge variant="secondary">
+                    {RECOMMENDATION_LABEL[entry.recommendation] ?? entry.recommendation}
+                  </Badge>
+                </div>
+                <div className="text-muted-foreground">
+                  {RUBRIC_CRITERIA.map(({ key, label }) => `${label} ${scores?.[key] ?? "—"}/5`).join(
+                    " · ",
+                  )}
+                </div>
+                {entry.notes && <p className="whitespace-pre-wrap">{entry.notes}</p>}
+              </div>
+            );
+          })}
+
+          {isInterviewerHere && (
+            <FeedbackForm
+              interviewId={interview.id}
+              existing={
+                myFeedback
+                  ? {
+                      rubricScores: myFeedback.rubricScores as Record<string, number>,
+                      notes: myFeedback.notes,
+                      recommendation: myFeedback.recommendation,
+                    }
+                  : undefined
+              }
+            />
+          )}
+        </CardContent>
       </Card>
     </div>
   );

@@ -21,10 +21,16 @@ export default async function InterviewPage({
   // distinguish "no such interview" from "exists, but not yours".
   if (!access) notFound();
 
+  // Long enough to outlast the scheduled slot itself, plus room for an
+  // interview that runs over — there's no reconnect-time refresh, so a token
+  // that expires before the interview realistically ends would strand
+  // whoever's still in the room on the next network blip.
+  const GRACE_PERIOD_MINUTES = 30;
   const token = mintInterviewToken({
     interviewId: access.interview.id,
     userId: user.id,
     role: access.participantRole,
+    expiresInSeconds: (access.interview.durationMins + GRACE_PERIOD_MINUTES) * 60,
   });
 
   return (

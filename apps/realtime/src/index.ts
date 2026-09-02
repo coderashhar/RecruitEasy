@@ -96,67 +96,102 @@ io.use((socket, next) => {
 io.on("connection", (socket: Socket<any, any, any, SocketData>) => {
   const { interviewId, userId, role } = socket.data;
 
-  // Failing to set up one socket must not take the process — and every other
-  // in-progress interview — down with it.
-  void (async () => {
-    const room = await getRoom(interviewId);
-    onJoin(interviewId, room);
-    socket.join(interviewId);
+  // Started immediately (getRoom returns a promise synchronously) but not
+  // awaited here, so listener registration below happens on this same tick —
+  // Socket.io does not queue events for a not-yet-registered listener, so an
+  // eager client that sends doc:update before hydration finishes must not
+  // find its event silently dropped.
+  const roomPromise = getRoom(interviewId);
+  let joined = false;
 
-    // Hydrate the newly-joined client with the current document state.
-    socket.emit("doc:sync", Buffer.from(encodeState(room)));
-    socket.to(interviewId).emit("presence:join", { userId, role });
+  socket.on("doc:update", async (update: Buffer) => {
+    let room;
+    try {
+      room = await roomPromise;
+    } catch {
+      return; // room never hydrated; nothing to apply the update to
+    }
 
-    socket.on("doc:update", async (update: Buffer) => {
+    // A malformed frame must be dropped, not thrown — this handler is the
+    // one place client input reaches Y.applyUpdate, and that throws on
+    // invalid binary. Letting it escape here would crash the whole process
+    // (and every other in-progress interview) over one bad frame.
+    try {
       applyRemoteUpdate(interviewId, room, new Uint8Array(update));
-      socket.to(interviewId).emit("doc:update", update);
+    } catch (err) {
+      console.error(`[realtime] dropped malformed doc:update for interview ${interviewId}`, err);
+      return;
+    }
+
+    socket.to(interviewId).emit("doc:update", update);
+  });
+
+  // Awareness (live cursors, selections) is ephemeral — relay only, never persisted.
+  socket.on("awareness:update", (update: Buffer) => {
+    socket.to(interviewId).emit("awareness:update", update);
+  });
+
+  socket.on("chat:message", (raw: unknown) => {
+    const parsed = chatMessageSchema.safeParse(raw);
+    if (!parsed.success) return;
+    io.to(interviewId).emit("chat:message", {
+      userId,
+      body: parsed.data.body,
+      at: Date.now(),
     });
+  });
 
-    // Awareness (live cursors, selections) is ephemeral — relay only, never persisted.
-    socket.on("awareness:update", (update: Buffer) => {
-      socket.to(interviewId).emit("awareness:update", update);
-    });
+  // Advisory only — never blocks or auto-flags a candidate (see PRD risk
+  // mitigation on anti-cheat, and IntegritySignal in the data model).
+  socket.on("integrity:signal", (raw: unknown) => {
+    const parsed = integritySignalSchema.safeParse(raw);
+    if (!parsed.success) return;
 
-    socket.on("chat:message", (raw: unknown) => {
-      const parsed = chatMessageSchema.safeParse(raw);
-      if (!parsed.success) return;
-      io.to(interviewId).emit("chat:message", {
-        userId,
-        body: parsed.data.body,
-        at: Date.now(),
-      });
-    });
+    prisma.integritySignal
+      .create({
+        data: {
+          interviewId,
+          type: parsed.data.type,
+          payload: parsed.data.payload as Prisma.InputJsonValue | undefined,
+        },
+      })
+      .catch((err) => console.error("[integrity] persist failed", err));
 
-    // Advisory only — never blocks or auto-flags a candidate (see PRD risk
-    // mitigation on anti-cheat, and IntegritySignal in the data model).
-    socket.on("integrity:signal", (raw: unknown) => {
-      const parsed = integritySignalSchema.safeParse(raw);
-      if (!parsed.success) return;
+    socket.to(interviewId).emit("integrity:signal", { userId, type: parsed.data.type });
+  });
 
-      prisma.integritySignal
-        .create({
-          data: {
-            interviewId,
-            type: parsed.data.type,
-            payload: parsed.data.payload as Prisma.InputJsonValue | undefined,
-          },
-        })
-        .catch((err) => console.error("[integrity] persist failed", err));
-
-      socket.to(interviewId).emit("integrity:signal", { userId, type: parsed.data.type });
-    });
-
-    socket.on("disconnecting", () => {
+  socket.on("disconnecting", () => {
+    // onJoin/onLeave must stay paired — calling onLeave without a matching
+    // onJoin (e.g. hydration failed) would double-decrement connections and
+    // could evict a room a peer is still using.
+    if (!joined) return;
+    roomPromise.then((room) => {
       onLeave(interviewId, room);
       socket.to(interviewId).emit("presence:leave", { userId });
     });
-  })().catch((err) => {
-    console.error(`[realtime] join failed for interview ${interviewId}`, err);
-    socket.emit("room:error", { message: "Could not join the interview room." });
-    socket.disconnect(true);
   });
+
+  roomPromise
+    .then((room) => {
+      onJoin(interviewId, room);
+      joined = true;
+      socket.join(interviewId);
+
+      // Hydrate the newly-joined client with the current document state.
+      socket.emit("doc:sync", Buffer.from(encodeState(room)));
+      socket.to(interviewId).emit("presence:join", { userId, role });
+    })
+    .catch((err) => {
+      console.error(`[realtime] join failed for interview ${interviewId}`, err);
+      socket.emit("room:error", { message: "Could not join the interview room." });
+      socket.disconnect(true);
+    });
 });
 
 httpServer.listen(PORT, () => {
   console.log(`[realtime] listening on :${PORT}`);
 });
+
+// Exported so integration tests can close the real server cleanly instead of
+// leaking an open port/connection per test run.
+export { httpServer, io };

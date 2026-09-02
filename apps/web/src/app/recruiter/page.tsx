@@ -107,11 +107,7 @@ export default async function RecruiterDashboard() {
         {upcomingInterviews.length > 0 && (
           <div className="flex flex-col gap-3 px-6 pb-6">
             {upcomingInterviews.map((interview) => (
-              <Link
-                key={interview.id}
-                href={`/interview/${interview.id}`}
-                className="rounded-md border p-3 text-sm transition-colors hover:bg-muted/50"
-              >
+              <div key={interview.id} className="rounded-md border p-3 text-sm">
                 <div className="font-medium">{interview.application.candidate.name}</div>
                 <div className="text-muted-foreground">
                   {interview.application.job.title} ·{" "}
@@ -120,7 +116,15 @@ export default async function RecruiterDashboard() {
                     timeStyle: "short",
                   })}
                 </div>
-              </Link>
+                <div className="mt-2 flex gap-3">
+                  <Link href={`/interview/${interview.id}`} className="underline">
+                    Join call
+                  </Link>
+                  <Link href={`/recruiter/interviews/${interview.id}`} className="underline">
+                    Details
+                  </Link>
+                </div>
+              </div>
             ))}
           </div>
         )}

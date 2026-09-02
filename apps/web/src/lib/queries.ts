@@ -106,6 +106,32 @@ export async function getJobsInOrg(orgId: string) {
   });
 }
 
+/**
+ * Org-scoped, not participant-scoped: a recruiter or admin reviewing an
+ * interview they did not sit in on must still get through. Contrast with
+ * authorizeInterviewAccess in interview-access.ts, which gates the live room
+ * itself and is deliberately participant-only — this is the review surface,
+ * not the room.
+ */
+export async function getInterviewDetail(orgId: string, interviewId: string) {
+  return prisma.interview.findFirst({
+    where: { id: interviewId, application: { job: { orgId } } },
+    include: {
+      application: {
+        include: {
+          candidate: { select: { id: true, name: true, email: true } },
+          job: { select: { id: true, title: true } },
+        },
+      },
+      participants: {
+        include: { user: { select: { id: true, name: true, role: true } } },
+      },
+      codeDocument: true,
+      integritySignals: { orderBy: { occurredAt: "asc" } },
+    },
+  });
+}
+
 /** Users who may be assigned the INTERVIEWER participant role — never a CANDIDATE. */
 export async function getPotentialInterviewers(orgId: string) {
   return prisma.user.findMany({

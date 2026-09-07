@@ -15,11 +15,16 @@ export class SchedulingError extends Error {}
  * migration this session doesn't need to take on for the concurrent-race
  * case to be closed too. This check still closes the common case (two
  * separate, non-concurrent schedule calls) that today has zero guard at all.
+ *
+ * Exported for interview-lifecycle.ts: a reschedule runs this same check, and
+ * `excludeInterviewId` is what stops an interview from conflicting with its
+ * own current booking when only its time is changing.
  */
-async function findInterviewerConflict(
+export async function findInterviewerConflict(
   interviewerIds: string[],
   scheduledAt: Date,
   durationMins: number,
+  excludeInterviewId?: string,
 ): Promise<boolean> {
   const requestedEnd = new Date(scheduledAt.getTime() + durationMins * 60_000);
 
@@ -30,7 +35,11 @@ async function findInterviewerConflict(
     where: {
       userId: { in: interviewerIds },
       role: "INTERVIEWER",
-      interview: { status: "SCHEDULED", scheduledAt: { lt: requestedEnd } },
+      interview: {
+        status: "SCHEDULED",
+        scheduledAt: { lt: requestedEnd },
+        ...(excludeInterviewId ? { id: { not: excludeInterviewId } } : {}),
+      },
     },
     select: { interview: { select: { scheduledAt: true, durationMins: true } } },
   });

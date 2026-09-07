@@ -18,6 +18,13 @@ import { Label } from "@/components/ui/label";
  * is still available: convert to a real ISO instant (with a "Z" offset)
  * before it ever reaches the server, so scheduleInterviewSchema's
  * `z.coerce.date()` has nothing left to guess about.
+ *
+ * The field deliberately starts empty, including on the reschedule form. A
+ * Client Component is still server-rendered first, so any prefill formatted
+ * from an existing Date would be formatted in the server's timezone — the
+ * same bug this component exists to prevent, reintroduced through the back
+ * door, and visibly wrong on the screen before hydration corrected it. The
+ * reschedule form shows the current time as text directly above instead.
  */
 /** Pulled out so the conversion itself is testable without rendering React. */
 export function localDateTimeToIso(value: string): string {

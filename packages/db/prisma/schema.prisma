@@ -146,7 +146,14 @@ model Application {
   resumes     Resume[]
   interviews  Interview[]
 
-  @@index([jobId])
+  // One application per candidate per job. Nothing previously stopped a
+  // recruiter adding the same candidate to the same job twice, which would
+  // show as duplicate pipeline rows and let two interviews be scheduled
+  // against what is really one application.
+  //
+  // This also serves lookups filtered by jobId alone (leftmost prefix), so a
+  // separate @@index([jobId]) would be dead weight on every write.
+  @@unique([jobId, candidateId])
   @@index([candidateId])
   @@map("applications")
 }
@@ -281,6 +288,10 @@ model Feedback {
   recommendation FeedbackRecommendation
   createdAt      DateTime                @default(now())
 
+  // One feedback per interviewer per interview. Resubmitting is an update of
+  // that interviewer's own row, not a second opinion from the same person —
+  // without this, a double-submit silently doubles their weight in review.
+  @@unique([interviewId, interviewerId])
   @@index([interviewId])
   @@map("feedback")
 }

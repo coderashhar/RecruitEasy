@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -11,20 +10,25 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { ApplicationStatus } from "@interviewhub/db";
+import { ApplicationStatusSelect } from "@/components/pipeline/application-status-select";
 import { getRecruiterPipeline, getUpcomingInterviews } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
 
-// Typed against the real enum (not Record<string, ...>) so a new
-// ApplicationStatus value is a compile error here until it's given a variant,
-// instead of silently falling through to a default look.
-const STATUS_VARIANT: Record<ApplicationStatus, "default" | "secondary" | "outline" | "destructive"> = {
-  APPLIED: "outline",
-  SCREENING: "secondary",
-  INTERVIEWING: "default",
-  OFFER: "default",
-  HIRED: "default",
-  REJECTED: "destructive",
+// Keyed by the enum, then read back as the option list. `satisfies
+// readonly ApplicationStatus[]` on a plain array would only check that each
+// entry IS a status, not that every status is present — a new enum value
+// would compile clean, silently miss the dropdown, and render as whichever
+// option happened to match first. A Record has to name every key.
+const APPLICATION_STATUS_LABEL: Record<ApplicationStatus, string> = {
+  APPLIED: "Applied",
+  SCREENING: "Screening",
+  INTERVIEWING: "Interviewing",
+  OFFER: "Offer",
+  HIRED: "Hired",
+  REJECTED: "Rejected",
 };
+
+const APPLICATION_STATUSES = Object.keys(APPLICATION_STATUS_LABEL) as ApplicationStatus[];
 
 export default async function RecruiterDashboard() {
   const { user } = await requireCurrentUser(["RECRUITER", "INTERVIEWER", "ADMIN"]);
@@ -49,7 +53,25 @@ export default async function RecruiterDashboard() {
                 : `${applications.length} application${applications.length === 1 ? "" : "s"} across ${jobs.length} job${jobs.length === 1 ? "" : "s"}.`}
             </CardDescription>
           </div>
-          <Button size="sm" render={<Link href="/recruiter/schedule">Schedule interview</Link>} />
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              nativeButton={false}
+              render={<Link href="/recruiter/jobs/new">Post job</Link>}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              nativeButton={false}
+              render={<Link href="/recruiter/applications/new">Add candidate</Link>}
+            />
+            <Button
+              size="sm"
+              nativeButton={false}
+              render={<Link href="/recruiter/schedule">Schedule interview</Link>}
+            />
+          </div>
         </CardHeader>
         {applications.length > 0 && (
           <Table>
@@ -69,9 +91,11 @@ export default async function RecruiterDashboard() {
                     <TableCell className="font-medium">{application.candidate.name}</TableCell>
                     <TableCell>{job.title}</TableCell>
                     <TableCell>
-                      <Badge variant={STATUS_VARIANT[application.status]}>
-                        {application.status}
-                      </Badge>
+                      <ApplicationStatusSelect
+                        applicationId={application.id}
+                        status={application.status}
+                        statuses={APPLICATION_STATUSES}
+                      />
                     </TableCell>
                     <TableCell>{latestReport ? `${latestReport.score}/100` : "—"}</TableCell>
                   </TableRow>
@@ -93,11 +117,7 @@ export default async function RecruiterDashboard() {
         {upcomingInterviews.length > 0 && (
           <div className="flex flex-col gap-3 px-6 pb-6">
             {upcomingInterviews.map((interview) => (
-              <Link
-                key={interview.id}
-                href={`/interview/${interview.id}`}
-                className="rounded-md border p-3 text-sm transition-colors hover:bg-muted/50"
-              >
+              <div key={interview.id} className="rounded-md border p-3 text-sm">
                 <div className="font-medium">{interview.application.candidate.name}</div>
                 <div className="text-muted-foreground">
                   {interview.application.job.title} ·{" "}
@@ -106,7 +126,15 @@ export default async function RecruiterDashboard() {
                     timeStyle: "short",
                   })}
                 </div>
-              </Link>
+                <div className="mt-2 flex gap-3">
+                  <Link href={`/interview/${interview.id}`} className="underline">
+                    Join call
+                  </Link>
+                  <Link href={`/recruiter/interviews/${interview.id}`} className="underline">
+                    Details
+                  </Link>
+                </div>
+              </div>
             ))}
           </div>
         )}

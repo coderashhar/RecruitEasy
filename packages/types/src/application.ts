@@ -1,0 +1,23 @@
+import { z } from "zod";
+
+export const applicationStatusSchema = z.enum([
+  "APPLIED",
+  "SCREENING",
+  "INTERVIEWING",
+  "OFFER",
+  "HIRED",
+  "REJECTED",
+]);
+export type ApplicationStatus = z.infer<typeof applicationStatusSchema>;
+
+export const createApplicationSchema = z.object({
+  jobId: z.string().min(1),
+  candidateId: z.string().min(1),
+});
+export type CreateApplicationInput = z.infer<typeof createApplicationSchema>;
+
+export const updateApplicationStatusSchema = z.object({
+  applicationId: z.string().min(1),
+  status: applicationStatusSchema,
+});
+export type UpdateApplicationStatusInput = z.infer<typeof updateApplicationStatusSchema>;

@@ -1,12 +1,34 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import type { ApplicationStatus, InterviewStatus } from "@interviewhub/db";
 import { getCandidateOverview } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
 
+type BadgeVariant = "default" | "secondary" | "outline" | "destructive";
+
+// Both typed against the real enums so an added status is a compile error
+// here rather than silently falling through to a default look.
+const APPLICATION_STATUS_VARIANT: Record<ApplicationStatus, BadgeVariant> = {
+  APPLIED: "outline",
+  SCREENING: "secondary",
+  INTERVIEWING: "default",
+  OFFER: "default",
+  HIRED: "default",
+  REJECTED: "destructive",
+};
+
+const INTERVIEW_STATUS_VARIANT: Record<InterviewStatus, BadgeVariant> = {
+  SCHEDULED: "outline",
+  IN_PROGRESS: "default",
+  COMPLETED: "secondary",
+  CANCELLED: "destructive",
+  NO_SHOW: "destructive",
+};
+
 export default async function CandidateDashboard() {
   const { user } = await requireCurrentUser(["CANDIDATE"]);
-  const { applications, upcomingInterviews } = await getCandidateOverview(user.id);
+  const { applications, upcomingInterviews, pastInterviews } = await getCandidateOverview(user.id);
 
   const latestReport = applications
     .flatMap((application) => application.resumes[0]?.atsReports[0] ?? [])
@@ -41,6 +63,7 @@ export default async function CandidateDashboard() {
           </div>
         )}
       </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Resume &amp; ATS score</CardTitle>
@@ -59,15 +82,52 @@ export default async function CandidateDashboard() {
           </div>
         )}
       </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Interview history</CardTitle>
           <CardDescription>
-            {applications.length === 0
-              ? "No past interviews."
-              : `${applications.length} application${applications.length === 1 ? "" : "s"} on file.`}
+            {pastInterviews.length === 0 ? "No past interviews." : undefined}
           </CardDescription>
         </CardHeader>
+        {pastInterviews.length > 0 && (
+          <CardContent className="flex flex-col gap-2">
+            {pastInterviews.map((interview) => (
+              <div key={interview.id} className="flex items-center justify-between gap-2 text-sm">
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{interview.application.job.title}</div>
+                  <div className="text-muted-foreground">
+                    {interview.scheduledAt.toLocaleDateString(undefined, { dateStyle: "medium" })}
+                  </div>
+                </div>
+                <Badge variant={INTERVIEW_STATUS_VARIANT[interview.status]}>
+                  {interview.status}
+                </Badge>
+              </div>
+            ))}
+          </CardContent>
+        )}
+      </Card>
+
+      <Card className="sm:col-span-2 lg:col-span-3">
+        <CardHeader>
+          <CardTitle>Applications</CardTitle>
+          <CardDescription>
+            {applications.length === 0 ? "You haven't applied to anything yet." : undefined}
+          </CardDescription>
+        </CardHeader>
+        {applications.length > 0 && (
+          <CardContent className="flex flex-col gap-2">
+            {applications.map((application) => (
+              <div key={application.id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="font-medium">{application.job.title}</span>
+                <Badge variant={APPLICATION_STATUS_VARIANT[application.status]}>
+                  {application.status}
+                </Badge>
+              </div>
+            ))}
+          </CardContent>
+        )}
       </Card>
     </div>
   );

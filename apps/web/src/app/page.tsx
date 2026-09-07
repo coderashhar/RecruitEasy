@@ -11,8 +11,12 @@ export default function Home() {
         Video, live coding, and resume intelligence — one interview, one tab.
       </h1>
       <div className="flex gap-3">
-        <Button render={<Link href="/sign-up">Get started</Link>} />
-        <Button variant="outline" render={<Link href="/sign-in">Sign in</Link>} />
+        <Button nativeButton={false} render={<Link href="/sign-up">Get started</Link>} />
+        <Button
+          variant="outline"
+          nativeButton={false}
+          render={<Link href="/sign-in">Sign in</Link>}
+        />
       </div>
     </div>
   );

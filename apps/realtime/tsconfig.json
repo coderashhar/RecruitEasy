@@ -3,8 +3,17 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    // Inherits moduleResolution "Bundler" from the base config rather than
+    // overriding to NodeNext. This service has no build step — dev, start and
+    // the Dockerfile all run the TypeScript source through tsx, which resolves
+    // both extensionless and ".js"-for-".ts" specifiers.
+    //
+    // It also consumes @interviewhub/types, whose `main` points straight at
+    // .ts source, so tsc type-checks that source under *this* app's settings.
+    // Under NodeNext it demanded ".js" specifiers there; Turbopack (which
+    // bundles the same file for apps/web) cannot resolve those. Only one of
+    // the two can be satisfied, and Bundler is what the rest of the monorepo
+    // already uses.
     "types": ["node"]
   },
   "include": ["src"]

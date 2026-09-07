@@ -17,7 +17,9 @@ Beyond that:
 - The body explains **why**, not what — the diff already says what. Prefer
   naming the concrete failure a change prevents over describing the mechanism.
 - One coherent change per commit; each commit should pass
-  `npm run typecheck && npm run lint && npm test` on its own.
+  `npm run typecheck && npm run lint && npm test && npm run build` on its own.
+  **`npm run build` is not optional** — see the Turbopack note below; it catches
+  a class of breakage the other three are structurally blind to.
 - Work happens on a branch and lands via PR. `main` is the default branch.
 
 ## Commands
@@ -83,6 +85,25 @@ server-side. `scheduleInterviewForOrg` in
 [`scheduling.ts`](apps/web/src/lib/scheduling.ts) is the reference shape: a typed
 error class, org-scoped validation before any write, then the mutation and its
 `AuditLog` row in one `prisma.$transaction`.
+
+**Turbopack resolves modules differently from tsc, vitest and tsx.** All three
+of those map a `./foo.js` specifier onto `./foo.ts`; Turbopack does not, for a
+`"type": "module"` package whose `main` points at TypeScript source — which is
+exactly what `packages/types` and `packages/db` are. Relative specifiers inside
+those packages must therefore stay **extensionless** (`export * from "./roles"`).
+
+This is the trap: `typecheck`, `lint` and `test` all pass while the app cannot
+build. It stays hidden until a page imports a *value* (a zod schema, a const)
+rather than a type, because type-only imports are erased before resolution ever
+happens. `transpilePackages` does not fix it (tested). Run `npm run build`.
+
+The same divergence is why `apps/realtime` inherits `moduleResolution: "Bundler"`
+from the base config instead of overriding to NodeNext: it consumes
+`@interviewhub/types`, so tsc type-checks that package's source under the
+*consumer's* settings, and NodeNext there demands the `.js` specifiers Turbopack
+can't resolve. Only one of the two can be satisfied. Nothing is lost — the
+service has no build step and runs its source through `tsx` everywhere,
+including in Docker.
 
 **Org scoping is the tenancy boundary.** Every function in
 [`queries.ts`](apps/web/src/lib/queries.ts) takes the caller's `orgId` and filters

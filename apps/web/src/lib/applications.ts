@@ -86,10 +86,20 @@ export async function updateApplicationStatus(
   }
 
   return prisma.$transaction(async (tx) => {
-    const updated = await tx.application.update({
-      where: { id: application.id },
+    // Pins the status the audit log is about to claim we moved *from*. The
+    // read happened outside this transaction, so without it a concurrent
+    // change would leave the audit trail recording a transition that never
+    // happened.
+    const { count } = await tx.application.updateMany({
+      where: { id: application.id, status: application.status },
       data: { status: input.status },
     });
+
+    if (count === 0) {
+      throw new ApplicationError(
+        "This application was changed by someone else — reload and try again.",
+      );
+    }
 
     await tx.auditLog.create({
       data: {
@@ -101,6 +111,6 @@ export async function updateApplicationStatus(
       },
     });
 
-    return updated;
+    return tx.application.findUniqueOrThrow({ where: { id: application.id } });
   });
 }

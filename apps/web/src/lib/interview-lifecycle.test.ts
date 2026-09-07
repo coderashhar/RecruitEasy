@@ -7,8 +7,13 @@ const updateInterview = vi.fn();
 const createAuditLog = vi.fn();
 const findInterviewerConflict = vi.fn();
 
+const findUniqueOrThrowInterview = vi.fn();
+
 const tx = {
-  interview: { update: (...args: unknown[]) => updateInterview(...args) },
+  interview: {
+    updateMany: (...args: unknown[]) => updateInterview(...args),
+    findUniqueOrThrow: (...args: unknown[]) => findUniqueOrThrowInterview(...args),
+  },
   auditLog: { create: (...args: unknown[]) => createAuditLog(...args) },
 };
 
@@ -44,6 +49,8 @@ beforeEach(() => {
   findFirstInterview.mockReset();
   findManyParticipant.mockReset();
   updateInterview.mockReset();
+  findUniqueOrThrowInterview.mockReset();
+  updateInterview.mockResolvedValue({ count: 1 });
   createAuditLog.mockReset();
   findInterviewerConflict.mockReset();
   findInterviewerConflict.mockResolvedValue(false);
@@ -81,7 +88,7 @@ describe("updateInterviewStatus", () => {
   for (const { from, to, legal } of cases) {
     test(`${from} -> ${to} is ${legal ? "allowed" : "rejected"}`, async () => {
       findFirstInterview.mockResolvedValue(interview(from));
-      updateInterview.mockResolvedValue({ ...interview(from), status: to });
+      findUniqueOrThrowInterview.mockResolvedValue({ ...interview(from), status: to });
 
       const promise = updateInterviewStatus(ORG_ID, ACTOR_ID, {
         interviewId: "interview_1",
@@ -90,8 +97,10 @@ describe("updateInterviewStatus", () => {
 
       if (legal) {
         await expect(promise).resolves.toMatchObject({ status: to });
+        // The previously-read status is pinned into the write, so a
+        // concurrent transition can't slip past the matrix check.
         expect(updateInterview).toHaveBeenCalledWith({
-          where: { id: "interview_1" },
+          where: { id: "interview_1", status: from },
           data: { status: to },
         });
       } else {
@@ -101,9 +110,19 @@ describe("updateInterviewStatus", () => {
     });
   }
 
+  test("a concurrent transition (0 rows matched) -> rejected, no audit log", async () => {
+    findFirstInterview.mockResolvedValue(interview("SCHEDULED"));
+    updateInterview.mockResolvedValue({ count: 0 });
+
+    await expect(
+      updateInterviewStatus(ORG_ID, ACTOR_ID, { interviewId: "interview_1", status: "COMPLETED" }),
+    ).rejects.toThrow(/changed by someone else/i);
+    expect(createAuditLog).not.toHaveBeenCalled();
+  });
+
   test("legal transition records the audit log with from/to", async () => {
     findFirstInterview.mockResolvedValue(interview("SCHEDULED"));
-    updateInterview.mockResolvedValue(interview("CANCELLED"));
+    findUniqueOrThrowInterview.mockResolvedValue(interview("CANCELLED"));
 
     await updateInterviewStatus(ORG_ID, ACTOR_ID, {
       interviewId: "interview_1",
@@ -151,7 +170,7 @@ describe("rescheduleInterview", () => {
   // every reschedule as a false conflict.
   test("excludes the interview's own current booking from the conflict check", async () => {
     findFirstInterview.mockResolvedValue(interview("SCHEDULED"));
-    updateInterview.mockResolvedValue({ ...interview("SCHEDULED"), ...rescheduleInput });
+    findUniqueOrThrowInterview.mockResolvedValue({ ...interview("SCHEDULED"), ...rescheduleInput });
 
     await rescheduleInterview(ORG_ID, ACTOR_ID, rescheduleInput);
 
@@ -163,16 +182,26 @@ describe("rescheduleInterview", () => {
     );
   });
 
+  test("a concurrent change (0 rows matched) -> rejected, no audit log", async () => {
+    findFirstInterview.mockResolvedValue(interview("SCHEDULED"));
+    updateInterview.mockResolvedValue({ count: 0 });
+
+    await expect(rescheduleInterview(ORG_ID, ACTOR_ID, rescheduleInput)).rejects.toThrow(
+      /changed by someone else/i,
+    );
+    expect(createAuditLog).not.toHaveBeenCalled();
+  });
+
   test("valid reschedule: updates the time and records before/after in the audit log", async () => {
     const before = interview("SCHEDULED");
     findFirstInterview.mockResolvedValue(before);
-    updateInterview.mockResolvedValue({ ...before, ...rescheduleInput });
+    findUniqueOrThrowInterview.mockResolvedValue({ ...before, ...rescheduleInput });
 
     const result = await rescheduleInterview(ORG_ID, ACTOR_ID, rescheduleInput);
 
     expect(result).toMatchObject(rescheduleInput);
     expect(updateInterview).toHaveBeenCalledWith({
-      where: { id: "interview_1" },
+      where: { id: "interview_1", status: "SCHEDULED" },
       data: { scheduledAt: rescheduleInput.scheduledAt, durationMins: rescheduleInput.durationMins },
     });
     expect(createAuditLog).toHaveBeenCalledWith({

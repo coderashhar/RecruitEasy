@@ -18,7 +18,12 @@ export function RescheduleForm({
   return (
     <form action={rescheduleInterviewAction} className="flex flex-col gap-4">
       <input type="hidden" name="interviewId" value={interviewId} />
-      <ScheduledAtField defaultValue={scheduledAt} />
+      <p className="text-xs text-muted-foreground">
+        Currently{" "}
+        {scheduledAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })} ·{" "}
+        {durationMins} min
+      </p>
+      <ScheduledAtField />
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="durationMins">Duration (minutes)</Label>
         <Input

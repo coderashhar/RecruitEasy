@@ -1,6 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { InterviewStatus } from "@interviewhub/db";
 import { changeInterviewStatus } from "@/app/recruiter/interviews/[id]/actions";
@@ -41,8 +42,18 @@ export function InterviewStatusActions({
     const formData = new FormData();
     formData.set("interviewId", interviewId);
     formData.set("status", next);
-    startTransition(() => {
-      void changeInterviewStatus(formData);
+
+    // The transition callback must await the action. A synchronous callback
+    // that merely fires it off resolves immediately, so `isPending` never
+    // engages (a double-click sends two writes) and a rejection — an illegal
+    // transition, say, because someone else completed this interview first —
+    // surfaces nowhere at all.
+    startTransition(async () => {
+      try {
+        await changeInterviewStatus(formData);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Could not update the interview.");
+      }
     });
   }
 

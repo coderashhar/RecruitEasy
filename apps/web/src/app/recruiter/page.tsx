@@ -14,17 +14,21 @@ import { ApplicationStatusSelect } from "@/components/pipeline/application-statu
 import { getRecruiterPipeline, getUpcomingInterviews } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
 
-// The full set of statuses the pipeline select offers. Typed against the real
-// enum via `satisfies` so an added ApplicationStatus value is a compile error
-// here, instead of silently missing from the dropdown.
-const APPLICATION_STATUSES = [
-  "APPLIED",
-  "SCREENING",
-  "INTERVIEWING",
-  "OFFER",
-  "HIRED",
-  "REJECTED",
-] as const satisfies readonly ApplicationStatus[];
+// Keyed by the enum, then read back as the option list. `satisfies
+// readonly ApplicationStatus[]` on a plain array would only check that each
+// entry IS a status, not that every status is present — a new enum value
+// would compile clean, silently miss the dropdown, and render as whichever
+// option happened to match first. A Record has to name every key.
+const APPLICATION_STATUS_LABEL: Record<ApplicationStatus, string> = {
+  APPLIED: "Applied",
+  SCREENING: "Screening",
+  INTERVIEWING: "Interviewing",
+  OFFER: "Offer",
+  HIRED: "Hired",
+  REJECTED: "Rejected",
+};
+
+const APPLICATION_STATUSES = Object.keys(APPLICATION_STATUS_LABEL) as ApplicationStatus[];
 
 export default async function RecruiterDashboard() {
   const { user } = await requireCurrentUser(["RECRUITER", "INTERVIEWER", "ADMIN"]);

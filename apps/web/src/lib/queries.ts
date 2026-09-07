@@ -36,9 +36,14 @@ export async function getRecruiterPipeline(orgId: string) {
 export async function getUpcomingInterviews(orgId: string) {
   return prisma.interview.findMany({
     where: {
-      status: "SCHEDULED",
-      scheduledAt: { gte: new Date() },
       application: { job: { orgId } },
+      // An interview being run right now is still "current", not past — and
+      // its scheduledAt is already behind us, so filtering on time alone
+      // would drop it off the dashboard the moment it starts.
+      OR: [
+        { status: "SCHEDULED", scheduledAt: { gte: new Date() } },
+        { status: "IN_PROGRESS" },
+      ],
     },
     orderBy: { scheduledAt: "asc" },
     include: {
@@ -71,18 +76,22 @@ export async function getCandidateOverview(userId: string) {
     }),
     prisma.interview.findMany({
       where: {
-        status: "SCHEDULED",
-        scheduledAt: { gte: now },
         participants: { some: { userId } },
+        OR: [{ status: "SCHEDULED", scheduledAt: { gte: now } }, { status: "IN_PROGRESS" }],
       },
       orderBy: { scheduledAt: "asc" },
       include: { application: { include: { job: true } } },
     }),
-    // The exact complement of the upcoming query: anything no longer
-    // SCHEDULED (completed, cancelled, no-show) or whose slot has passed.
+    // The exact complement of the query above: reached a terminal state, or
+    // its slot passed without ever starting. IN_PROGRESS is excluded here
+    // because the upcoming query claims it — an interview being run right now
+    // is not history, and showing it as such would pull it out of the
+    // "Upcoming" card, the only place carrying a link into the room, at the
+    // exact moment the candidate still needs to join.
     prisma.interview.findMany({
       where: {
         participants: { some: { userId } },
+        status: { not: "IN_PROGRESS" },
         OR: [{ status: { not: "SCHEDULED" } }, { scheduledAt: { lt: now } }],
       },
       orderBy: { scheduledAt: "desc" },

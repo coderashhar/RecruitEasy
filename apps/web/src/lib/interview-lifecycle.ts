@@ -45,10 +45,19 @@ export async function updateInterviewStatus(
   }
 
   return prisma.$transaction(async (tx) => {
-    const updated = await tx.interview.update({
-      where: { id: interview.id },
+    // Re-asserts the status we validated against as part of the write itself.
+    // The read above happened outside this transaction, so without this two
+    // concurrent transitions would both pass the check and the later write
+    // would win — quietly moving an interview out of a terminal state that
+    // LEGAL_TRANSITIONS says can never be left.
+    const { count } = await tx.interview.updateMany({
+      where: { id: interview.id, status: interview.status },
       data: { status: input.status },
     });
+
+    if (count === 0) {
+      throw new LifecycleError("This interview was changed by someone else — reload and try again.");
+    }
 
     await tx.auditLog.create({
       data: {
@@ -60,7 +69,7 @@ export async function updateInterviewStatus(
       },
     });
 
-    return updated;
+    return tx.interview.findUniqueOrThrow({ where: { id: interview.id } });
   });
 }
 
@@ -102,10 +111,17 @@ export async function rescheduleInterview(
   }
 
   return prisma.$transaction(async (tx) => {
-    const updated = await tx.interview.update({
-      where: { id: interview.id },
+    // Same reasoning as updateInterviewStatus: pin the status we validated
+    // against into the write, so a reschedule can't land on an interview that
+    // was cancelled or started between the read and this update.
+    const { count } = await tx.interview.updateMany({
+      where: { id: interview.id, status: "SCHEDULED" },
       data: { scheduledAt: input.scheduledAt, durationMins: input.durationMins },
     });
+
+    if (count === 0) {
+      throw new LifecycleError("This interview was changed by someone else — reload and try again.");
+    }
 
     await tx.auditLog.create({
       data: {
@@ -120,6 +136,6 @@ export async function rescheduleInterview(
       },
     });
 
-    return updated;
+    return tx.interview.findUniqueOrThrow({ where: { id: interview.id } });
   });
 }

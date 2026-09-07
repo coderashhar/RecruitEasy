@@ -7,10 +7,13 @@ const createApplication = vi.fn();
 const updateApplication = vi.fn();
 const createAuditLog = vi.fn();
 
+const findUniqueOrThrowApplication = vi.fn();
+
 const tx = {
   application: {
     create: (...args: unknown[]) => createApplication(...args),
-    update: (...args: unknown[]) => updateApplication(...args),
+    updateMany: (...args: unknown[]) => updateApplication(...args),
+    findUniqueOrThrow: (...args: unknown[]) => findUniqueOrThrowApplication(...args),
   },
   auditLog: { create: (...args: unknown[]) => createAuditLog(...args) },
 };
@@ -49,6 +52,7 @@ beforeEach(() => {
   findFirstApplication.mockReset();
   createApplication.mockReset();
   updateApplication.mockReset();
+  findUniqueOrThrowApplication.mockReset();
   createAuditLog.mockReset();
 
   findFirstJob.mockResolvedValue({ id: "job_1" });
@@ -133,7 +137,8 @@ describe("updateApplicationStatus", () => {
 
   beforeEach(() => {
     findFirstApplication.mockResolvedValue({ id: "app_1", status: "INTERVIEWING" });
-    updateApplication.mockResolvedValue({ id: "app_1", status: "OFFER" });
+    updateApplication.mockResolvedValue({ count: 1 });
+    findUniqueOrThrowApplication.mockResolvedValue({ id: "app_1", status: "OFFER" });
   });
 
   test("application from another org -> rejected before any write", async () => {
@@ -153,8 +158,10 @@ describe("updateApplicationStatus", () => {
     const result = await updateApplicationStatus(ORG_ID, ACTOR_ID, statusInput);
 
     expect(result).toEqual({ id: "app_1", status: "OFFER" });
+    // Pins the previous status into the write so a concurrent change can't
+    // leave the audit log recording a transition that never happened.
     expect(updateApplication).toHaveBeenCalledWith({
-      where: { id: "app_1" },
+      where: { id: "app_1", status: "INTERVIEWING" },
       data: { status: "OFFER" },
     });
     expect(createAuditLog).toHaveBeenCalledWith({
@@ -171,9 +178,19 @@ describe("updateApplicationStatus", () => {
   // Deliberately no transition-matrix test: any status to any other is a
   // legitimate recruiter correction, unlike the interview lifecycle's real
   // transition constraints.
+  test("a concurrent change (0 rows matched) -> rejected, no audit log written", async () => {
+    updateApplication.mockResolvedValue({ count: 0 });
+
+    await expect(updateApplicationStatus(ORG_ID, ACTOR_ID, statusInput)).rejects.toThrow(
+      /changed by someone else/i,
+    );
+    expect(createAuditLog).not.toHaveBeenCalled();
+  });
+
   test("moving backwards (e.g. REJECTED -> SCREENING) is allowed", async () => {
     findFirstApplication.mockResolvedValue({ id: "app_1", status: "REJECTED" });
-    updateApplication.mockResolvedValue({ id: "app_1", status: "SCREENING" });
+    updateApplication.mockResolvedValue({ count: 1 });
+    findUniqueOrThrowApplication.mockResolvedValue({ id: "app_1", status: "SCREENING" });
 
     await expect(
       updateApplicationStatus(ORG_ID, ACTOR_ID, { applicationId: "app_1", status: "SCREENING" }),

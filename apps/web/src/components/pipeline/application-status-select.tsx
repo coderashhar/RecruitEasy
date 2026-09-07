@@ -1,6 +1,7 @@
 "use client";
 
-import { useTransition, type ChangeEvent } from "react";
+import { useState, useTransition, type ChangeEvent } from "react";
+import { toast } from "sonner";
 import type { ApplicationStatus } from "@interviewhub/db";
 import { changeApplicationStatus } from "@/app/recruiter/applications/actions";
 
@@ -10,6 +11,11 @@ const selectClassName =
 /**
  * Called directly (not via <form action>) so this can auto-submit on change
  * without a visible submit button inside a table cell.
+ *
+ * Controlled rather than uncontrolled: an uncontrolled <select> keeps
+ * displaying whatever was picked even when the server rejected the write,
+ * leaving the table showing a status the database does not have. Holding the
+ * value in state lets a failure roll it back to what was actually persisted.
  */
 export function ApplicationStatusSelect({
   applicationId,
@@ -21,19 +27,30 @@ export function ApplicationStatusSelect({
   statuses: readonly ApplicationStatus[];
 }) {
   const [isPending, startTransition] = useTransition();
+  const [value, setValue] = useState<ApplicationStatus>(status);
 
   function handleChange(event: ChangeEvent<HTMLSelectElement>) {
+    const next = event.target.value as ApplicationStatus;
+    const previous = value;
+    setValue(next);
+
     const formData = new FormData();
     formData.set("applicationId", applicationId);
-    formData.set("status", event.target.value);
-    startTransition(() => {
-      void changeApplicationStatus(formData);
+    formData.set("status", next);
+
+    startTransition(async () => {
+      try {
+        await changeApplicationStatus(formData);
+      } catch (err) {
+        setValue(previous);
+        toast.error(err instanceof Error ? err.message : "Could not update the application.");
+      }
     });
   }
 
   return (
     <select
-      defaultValue={status}
+      value={value}
       onChange={handleChange}
       disabled={isPending}
       className={selectClassName}

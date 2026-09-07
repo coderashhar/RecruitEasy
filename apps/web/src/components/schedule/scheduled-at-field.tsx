@@ -18,28 +18,22 @@ import { Label } from "@/components/ui/label";
  * is still available: convert to a real ISO instant (with a "Z" offset)
  * before it ever reaches the server, so scheduleInterviewSchema's
  * `z.coerce.date()` has nothing left to guess about.
+ *
+ * The field deliberately starts empty, including on the reschedule form. A
+ * Client Component is still server-rendered first, so any prefill formatted
+ * from an existing Date would be formatted in the server's timezone — the
+ * same bug this component exists to prevent, reintroduced through the back
+ * door, and visibly wrong on the screen before hydration corrected it. The
+ * reschedule form shows the current time as text directly above instead.
  */
 /** Pulled out so the conversion itself is testable without rendering React. */
 export function localDateTimeToIso(value: string): string {
   return value ? new Date(value).toISOString() : "";
 }
 
-/**
- * The inverse, for prefilling a reschedule form: a datetime-local input's
- * `defaultValue` must be a local-time string with no timezone, and the plain
- * Date getters (getFullYear/getHours/...) already return components in
- * *this* runtime's local timezone — which, in the browser, is correctly the
- * recruiter's own. Building the string by hand (not toISOString, which is
- * UTC) is what keeps it displaying the instant the recruiter actually set.
- */
-export function dateToLocalDateTimeValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-export function ScheduledAtField({ defaultValue }: { defaultValue?: Date } = {}) {
+export function ScheduledAtField() {
   const localInputId = useId();
-  const [isoValue, setIsoValue] = useState(defaultValue ? defaultValue.toISOString() : "");
+  const [isoValue, setIsoValue] = useState("");
 
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
     setIsoValue(localDateTimeToIso(event.target.value));
@@ -48,13 +42,7 @@ export function ScheduledAtField({ defaultValue }: { defaultValue?: Date } = {})
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={localInputId}>Date &amp; time</Label>
-      <Input
-        id={localInputId}
-        type="datetime-local"
-        required
-        defaultValue={defaultValue ? dateToLocalDateTimeValue(defaultValue) : undefined}
-        onChange={handleChange}
-      />
+      <Input id={localInputId} type="datetime-local" required onChange={handleChange} />
       <input type="hidden" name="scheduledAt" value={isoValue} />
     </div>
   );

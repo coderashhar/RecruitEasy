@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { MonacoBinding } from "y-monaco";
 import type { SocketYjsProvider } from "./socket-yjs-provider";
@@ -10,11 +10,65 @@ export interface CodeEditorProps {
   language: string;
 }
 
+interface RemotePeer {
+  clientId: number;
+  name: string;
+  color: string;
+}
+
+/** Escapes a name for use inside a CSS `content: "..."` declaration. */
+function cssString(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/**
+ * y-monaco decorates remote selections with the classes
+ * `yRemoteSelection-<clientID>` and `yRemoteSelectionHead-<clientID>` — and
+ * ships no CSS for them whatsoever. Without these rules the decorations are
+ * created and attached on every keystroke but render as nothing, which is
+ * exactly what "live cursors don't work" looked like: the sync was fine, the
+ * carets were simply invisible.
+ *
+ * The rules have to be generated per client because the colour lives in
+ * awareness, not in a stylesheet, and the caret's label is the peer's name.
+ */
+function peerStyles(peers: RemotePeer[]): string {
+  return peers
+    .map(
+      ({ clientId, name, color }) => `
+.yRemoteSelection-${clientId} {
+  background-color: ${color};
+  opacity: 0.28;
+}
+.yRemoteSelectionHead-${clientId} {
+  position: absolute;
+  border-left: 2px solid ${color};
+  height: 100%;
+  box-sizing: border-box;
+}
+.yRemoteSelectionHead-${clientId}::after {
+  content: "${cssString(name)}";
+  position: absolute;
+  top: -1.4em;
+  left: -2px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 1.4em;
+  white-space: nowrap;
+  background-color: ${color};
+  color: #0b0b0b;
+  pointer-events: none;
+}`,
+    )
+    .join("\n");
+}
+
 /**
  * Monaco wired to the shared Y.Doc via y-monaco's MonacoBinding, which does
  * the actual two-way sync between the editor model and `doc.getText("code")`
- * — this component's only job is to create that binding once the editor
- * instance exists, and tear it down on unmount.
+ * — this component creates that binding once the editor instance exists, and
+ * supplies the remote-caret CSS the binding assumes someone else provides.
  *
  * The "code" text-key name isn't arbitrary: apps/realtime/src/rooms.ts's
  * persistSnapshot() reads `doc.getText("code")` when it saves CodeDocument —
@@ -22,6 +76,7 @@ export interface CodeEditorProps {
  */
 export function CodeEditor({ provider, language }: CodeEditorProps) {
   const bindingRef = useRef<MonacoBinding | null>(null);
+  const [peers, setPeers] = useState<RemotePeer[]>([]);
 
   const handleMount: OnMount = (editor) => {
     const model = editor.getModel();
@@ -35,9 +90,27 @@ export function CodeEditor({ provider, language }: CodeEditorProps) {
     );
   };
 
-  // Not tied to `provider` in the dependency array: this component only ever
-  // mounts once per provider instance (interview-room.tsx keys the whole
-  // subtree on it), and the binding is created from handleMount, not here.
+  useEffect(() => {
+    const { awareness, doc } = provider;
+
+    const readPeers = () => {
+      const next: RemotePeer[] = [];
+      awareness.getStates().forEach((state, clientId) => {
+        if (clientId === doc.clientID) return; // your own caret is the real one
+        const user = (state as { user?: { name?: string; color?: string } }).user;
+        if (!user?.name || !user.color) return;
+        next.push({ clientId, name: user.name, color: user.color });
+      });
+      setPeers(next);
+    };
+
+    readPeers();
+    awareness.on("change", readPeers);
+    return () => {
+      awareness.off("change", readPeers);
+    };
+  }, [provider]);
+
   useEffect(() => {
     return () => {
       bindingRef.current?.destroy();
@@ -46,12 +119,15 @@ export function CodeEditor({ provider, language }: CodeEditorProps) {
   }, []);
 
   return (
-    <Editor
-      height="60vh"
-      language={language}
-      theme="vs-dark"
-      onMount={handleMount}
-      options={{ automaticLayout: true, minimap: { enabled: false }, fontSize: 14 }}
-    />
+    <>
+      <style>{peerStyles(peers)}</style>
+      <Editor
+        height="60vh"
+        language={language}
+        theme="vs-dark"
+        onMount={handleMount}
+        options={{ automaticLayout: true, minimap: { enabled: false }, fontSize: 14 }}
+      />
+    </>
   );
 }

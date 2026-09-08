@@ -34,11 +34,18 @@ export default async function InterviewPage({
   });
 
   return (
-    <div className="mx-auto max-w-5xl p-6">
+    <div className="mx-auto max-w-6xl p-6">
       <InterviewRoom
         interviewId={access.interview.id}
         token={token}
         role={access.participantRole}
+        currentUserId={user.id}
+        roster={access.roster}
+        jobTitle={access.jobTitle}
+        candidateName={access.candidateName}
+        scheduledAt={access.interview.scheduledAt}
+        durationMins={access.interview.durationMins}
+        status={access.interview.status}
       />
     </div>
   );

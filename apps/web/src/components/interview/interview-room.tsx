@@ -1,14 +1,15 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import type { InterviewParticipantRole } from "@interviewhub/db";
+import type { InterviewParticipantRole, InterviewStatus } from "@interviewhub/db";
 import { DEFAULT_LANGUAGE } from "@interviewhub/types";
-import { SocketYjsProvider } from "./socket-yjs-provider";
+import type { RosterEntry } from "@/lib/interview-access";
+import { SocketYjsProvider, type ConnectionStatus } from "./socket-yjs-provider";
 
 // Monaco measures the DOM and touches `window` on load, so it cannot be
 // prerendered on the server. Per Next's own docs, `ssr: false` is only legal
@@ -28,6 +29,13 @@ export interface InterviewRoomProps {
   interviewId: string;
   token: string;
   role: InterviewParticipantRole;
+  currentUserId: string;
+  roster: RosterEntry[];
+  jobTitle: string;
+  candidateName: string;
+  scheduledAt: Date;
+  durationMins: number;
+  status: InterviewStatus;
 }
 
 interface ChatMessage {
@@ -36,16 +44,43 @@ interface ChatMessage {
   at: number;
 }
 
-interface PresenceEntry {
-  userId: string;
-  role: string;
-}
+const STATUS_COPY: Record<ConnectionStatus, { label: string; tone: "ok" | "warn" | "bad" }> = {
+  connecting: { label: "Connecting…", tone: "warn" },
+  connected: { label: "Connected", tone: "ok" },
+  reconnecting: { label: "Reconnecting…", tone: "warn" },
+  disconnected: { label: "Disconnected", tone: "bad" },
+  unauthorized: { label: "Session expired — reload", tone: "bad" },
+};
 
-export function InterviewRoom({ interviewId, token, role }: InterviewRoomProps) {
+export function InterviewRoom({
+  interviewId,
+  token,
+  role,
+  currentUserId,
+  roster,
+  jobTitle,
+  candidateName,
+  scheduledAt,
+  durationMins,
+  status,
+}: InterviewRoomProps) {
   const [provider, setProvider] = useState<SocketYjsProvider | null>(null);
-  const [presence, setPresence] = useState<PresenceEntry[]>([]);
+  const [connection, setConnection] = useState<ConnectionStatus>("connecting");
+  const [connectedIds, setConnectedIds] = useState<string[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
+
+  // Presence and chat arrive from the realtime service carrying only a
+  // userId; the roster is what turns those into names.
+  const nameFor = useCallback(
+    (userId: string) => roster.find((entry) => entry.userId === userId)?.name ?? "Unknown",
+    [roster],
+  );
+
+  const me = useMemo(
+    () => roster.find((entry) => entry.userId === currentUserId),
+    [roster, currentUserId],
+  );
 
   useEffect(() => {
     const url = process.env.NEXT_PUBLIC_REALTIME_URL;
@@ -54,30 +89,37 @@ export function InterviewRoom({ interviewId, token, role }: InterviewRoomProps) 
       return;
     }
 
-    const nextProvider = new SocketYjsProvider({ url, token });
+    const nextProvider = new SocketYjsProvider({
+      url,
+      token,
+      identity: { userId: currentUserId, name: me?.name ?? "Unknown" },
+      onStatus: setConnection,
+    });
+
     // Revealed once the socket actually connects, not the instant it's
     // constructed (connecting is inherently async) — this also keeps the
     // very first setState call inside an event callback rather than
-    // synchronously in the effect body, which is what React's own
-    // set-state-in-effect lint rule is steering toward: a direct
-    // synchronous setState here would trigger an extra cascading render
-    // on every mount for no benefit.
+    // synchronously in the effect body.
     nextProvider.socket.once("connect", () => setProvider(nextProvider));
 
-    const handlePresenceJoin = (entry: PresenceEntry) =>
-      setPresence((prev) => [...prev.filter((p) => p.userId !== entry.userId), entry]);
+    // The server sends the full roster of connected sockets on join, then
+    // incremental join/leave after that. Without the list, whoever joined
+    // second never learned the first was already there.
+    const handlePresenceList = (entries: Array<{ userId: string }>) =>
+      setConnectedIds(entries.map((entry) => entry.userId));
+    const handlePresenceJoin = ({ userId }: { userId: string }) =>
+      setConnectedIds((prev) => (prev.includes(userId) ? prev : [...prev, userId]));
     const handlePresenceLeave = ({ userId }: { userId: string }) =>
-      setPresence((prev) => prev.filter((p) => p.userId !== userId));
+      setConnectedIds((prev) => prev.filter((id) => id !== userId));
     const handleChat = (message: ChatMessage) => setMessages((prev) => [...prev, message]);
 
+    nextProvider.socket.on("presence:list", handlePresenceList);
     nextProvider.socket.on("presence:join", handlePresenceJoin);
     nextProvider.socket.on("presence:leave", handlePresenceLeave);
     nextProvider.socket.on("chat:message", handleChat);
 
     // Advisory-only integrity signals — never blocks or auto-flags a
-    // candidate (PRD risk mitigation on anti-cheat). The server already
-    // persists these (see apps/realtime/src/index.ts); nothing sent them
-    // until now.
+    // candidate (PRD risk mitigation on anti-cheat).
     const handleVisibility = () => {
       if (document.hidden) {
         nextProvider.socket.emit("integrity:signal", { interviewId, type: "TAB_BLUR" });
@@ -94,8 +136,9 @@ export function InterviewRoom({ interviewId, token, role }: InterviewRoomProps) 
       document.removeEventListener("paste", handlePaste);
       nextProvider.destroy();
       setProvider(null);
+      setConnectedIds([]);
     };
-  }, [interviewId, token]);
+  }, [interviewId, token, currentUserId, me?.name]);
 
   function sendMessage(event: FormEvent) {
     event.preventDefault();
@@ -105,69 +148,118 @@ export function InterviewRoom({ interviewId, token, role }: InterviewRoomProps) 
     setDraft("");
   }
 
+  const connectionCopy = STATUS_COPY[connection];
+
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+    <div className="flex flex-col gap-4">
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            Interview room
-            <Badge variant="secondary">{role}</Badge>
-          </CardTitle>
-          <CardDescription>Room {interviewId}</CardDescription>
+        <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
+          <div>
+            <CardTitle>
+              {candidateName} — {jobTitle}
+            </CardTitle>
+            <CardDescription>
+              {scheduledAt.toLocaleString(undefined, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}{" "}
+              · {durationMins} min · you are the {role.toLowerCase()}
+            </CardDescription>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Badge variant="outline">{status}</Badge>
+            <Badge
+              variant={
+                connectionCopy.tone === "ok"
+                  ? "secondary"
+                  : connectionCopy.tone === "bad"
+                    ? "destructive"
+                    : "outline"
+              }
+            >
+              {connectionCopy.label}
+            </Badge>
+          </div>
         </CardHeader>
-        <CardContent>
-          {provider ? (
-            <CodeEditor provider={provider} language={DEFAULT_LANGUAGE} />
-          ) : (
-            <div className="flex h-[60vh] items-center justify-center text-sm text-muted-foreground">
-              Connecting…
-            </div>
-          )}
-        </CardContent>
       </Card>
 
-      <div className="flex flex-col gap-4">
+      <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Participants</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-1 text-sm">
-            {presence.length === 0 ? (
-              <span className="text-muted-foreground">No one else has joined yet.</span>
+          <CardContent className="p-0">
+            {provider ? (
+              <CodeEditor provider={provider} language={DEFAULT_LANGUAGE} />
             ) : (
-              presence.map((p) => (
-                <span key={p.userId}>
-                  {p.userId} · {p.role}
-                </span>
-              ))
+              <div className="flex h-[60vh] items-center justify-center text-sm text-muted-foreground">
+                {connection === "unauthorized"
+                  ? "Your session for this interview expired. Reload the page."
+                  : "Connecting…"}
+              </div>
             )}
           </CardContent>
         </Card>
 
-        <Card className="flex flex-1 flex-col">
-          <CardHeader>
-            <CardTitle className="text-base">Chat</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-1 flex-col gap-2">
-            <div className="flex-1 space-y-1 overflow-y-auto text-sm">
-              {messages.map((message, index) => (
-                <div key={index}>
-                  <span className="text-muted-foreground">{message.userId}:</span> {message.body}
-                </div>
-              ))}
-            </div>
-            <form onSubmit={sendMessage} className="flex gap-2">
-              <Input
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder="Say something…"
-              />
-              <Button type="submit" size="sm">
-                Send
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+        <div className="flex flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Participants</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2 text-sm">
+              {roster.map((entry) => {
+                const online = connectedIds.includes(entry.userId);
+                return (
+                  <div key={entry.userId} className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 truncate">
+                      <span
+                        aria-hidden="true"
+                        className={`size-2 shrink-0 rounded-full ${
+                          online ? "bg-emerald-500" : "bg-muted-foreground/40"
+                        }`}
+                      />
+                      <span className="truncate">
+                        {entry.name}
+                        {entry.userId === currentUserId && " (you)"}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {online ? entry.role : "away"}
+                    </span>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+
+          <Card className="flex flex-1 flex-col">
+            <CardHeader>
+              <CardTitle className="text-base">Chat</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-1 flex-col gap-2">
+              <div className="flex-1 space-y-1 overflow-y-auto text-sm">
+                {messages.length === 0 ? (
+                  <span className="text-muted-foreground">No messages yet.</span>
+                ) : (
+                  messages.map((message, index) => (
+                    <div key={index}>
+                      <span className="font-medium">{nameFor(message.userId)}:</span>{" "}
+                      {message.body}
+                    </div>
+                  ))
+                )}
+              </div>
+              <form onSubmit={sendMessage} className="flex gap-2">
+                <Input
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  placeholder="Say something…"
+                  aria-label="Chat message"
+                />
+                <Button type="submit" size="sm" disabled={!provider}>
+                  Send
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

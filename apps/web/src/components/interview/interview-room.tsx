@@ -25,6 +25,17 @@ const CodeEditor = dynamic(() => import("./code-editor").then((m) => m.CodeEdito
   ),
 });
 
+// Same reason as the editor: livekit-client reaches for browser media APIs on
+// import, so it must not be part of the server render.
+const VideoPanel = dynamic(() => import("./video-panel").then((m) => m.VideoPanel), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+      Loading video…
+    </div>
+  ),
+});
+
 export interface InterviewRoomProps {
   interviewId: string;
   token: string;
@@ -36,6 +47,9 @@ export interface InterviewRoomProps {
   scheduledAt: Date;
   durationMins: number;
   status: InterviewStatus;
+  /** Null when LiveKit isn't configured — the room then runs without video. */
+  videoToken: string | null;
+  videoServerUrl: string | null;
 }
 
 interface ChatMessage {
@@ -63,6 +77,8 @@ export function InterviewRoom({
   scheduledAt,
   durationMins,
   status,
+  videoToken,
+  videoServerUrl,
 }: InterviewRoomProps) {
   const [provider, setProvider] = useState<SocketYjsProvider | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>("connecting");
@@ -199,6 +215,10 @@ export function InterviewRoom({
         </Card>
 
         <div className="flex flex-col gap-4">
+          {videoToken && videoServerUrl && (
+            <VideoPanel serverUrl={videoServerUrl} token={videoToken} />
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Participants</CardTitle>

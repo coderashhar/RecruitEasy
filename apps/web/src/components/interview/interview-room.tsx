@@ -4,7 +4,6 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { InterviewParticipantRole, InterviewStatus } from "@interviewhub/db";
 import { DEFAULT_LANGUAGE } from "@interviewhub/types";
@@ -19,7 +18,7 @@ import { SocketYjsProvider, type ConnectionStatus } from "./socket-yjs-provider"
 const CodeEditor = dynamic(() => import("./code-editor").then((m) => m.CodeEditor), {
   ssr: false,
   loading: () => (
-    <div className="flex h-[60vh] items-center justify-center text-sm text-muted-foreground">
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
       Loading editor…
     </div>
   ),
@@ -30,7 +29,7 @@ const CodeEditor = dynamic(() => import("./code-editor").then((m) => m.CodeEdito
 const VideoPanel = dynamic(() => import("./video-panel").then((m) => m.VideoPanel), {
   ssr: false,
   loading: () => (
-    <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+    <div className="flex h-64 shrink-0 items-center justify-center rounded-lg border text-sm text-muted-foreground">
       Loading video…
     </div>
   ),
@@ -166,69 +165,91 @@ export function InterviewRoom({
 
   const connectionCopy = STATUS_COPY[connection];
 
-  return (
-    <div className="flex flex-col gap-4">
-      <Card>
-        <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
-          <div>
-            <CardTitle>
-              {candidateName} — {jobTitle}
-            </CardTitle>
-            <CardDescription>
-              {scheduledAt.toLocaleString(undefined, {
-                dateStyle: "medium",
-                timeStyle: "short",
-              })}{" "}
-              · {durationMins} min · you are the {role.toLowerCase()}
-            </CardDescription>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Badge variant="outline">{status}</Badge>
-            <Badge
-              variant={
-                connectionCopy.tone === "ok"
-                  ? "secondary"
-                  : connectionCopy.tone === "bad"
-                    ? "destructive"
-                    : "outline"
-              }
-            >
-              {connectionCopy.label}
-            </Badge>
-          </div>
-        </CardHeader>
-      </Card>
+  const onlineCount = roster.filter((entry) => connectedIds.includes(entry.userId)).length;
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
-        <Card>
-          <CardContent className="p-0">
+  return (
+    // `min-h-0` at every level of this chain is what lets the editor pane
+    // resolve a real height. A flex child defaults to `min-height: auto`,
+    // which refuses to shrink below its content — so without these, the
+    // editor's own height never resolves and Monaco measures nothing.
+    <div className="flex h-[calc(100vh-2rem)] flex-col gap-3">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border bg-card px-4 py-3">
+        <div className="min-w-0">
+          <h1 className="truncate text-sm font-semibold">
+            {candidateName} — {jobTitle}
+          </h1>
+          {/* suppressHydrationWarning because toLocaleString resolves against
+              whichever runtime formats it: the server's timezone during SSR
+              (UTC on Vercel), the viewer's in the browser. The viewer's is the
+              correct one — the same reasoning as scheduled-at-field.tsx — so
+              the mismatch is expected rather than a defect to design around,
+              and the client value replaces it on the first re-render. */}
+          <p className="truncate text-xs text-muted-foreground" suppressHydrationWarning>
+            {scheduledAt.toLocaleString(undefined, {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })}{" "}
+            · {durationMins} min · you are the {role.toLowerCase()}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Badge variant="outline">{status}</Badge>
+          <Badge
+            variant={
+              connectionCopy.tone === "ok"
+                ? "secondary"
+                : connectionCopy.tone === "bad"
+                  ? "destructive"
+                  : "outline"
+            }
+          >
+            {connectionCopy.label}
+          </Badge>
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
+        {/* Deliberately not a <Card>: its `overflow-hidden` and
+            `--card-spacing` padding break the parent chain Monaco measures
+            itself against, which is what collapsed the editor to a few
+            pixels wide. A plain bordered box looks the same and measures. */}
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
+          <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
+            <span className="font-mono text-xs text-muted-foreground">
+              shared editor · {DEFAULT_LANGUAGE}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {onlineCount} of {roster.length} here
+            </span>
+          </div>
+          <div className="min-h-0 flex-1">
             {provider ? (
               <CodeEditor provider={provider} language={DEFAULT_LANGUAGE} />
             ) : (
-              <div className="flex h-[60vh] items-center justify-center text-sm text-muted-foreground">
+              <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
                 {connection === "unauthorized"
                   ? "Your session for this interview expired. Reload the page."
                   : "Connecting…"}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        <div className="flex flex-col gap-4">
+        <aside className="flex shrink-0 flex-col gap-3 lg:h-full lg:w-[360px]">
           {videoToken && videoServerUrl && (
             <VideoPanel serverUrl={videoServerUrl} token={videoToken} />
           )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Participants</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2 text-sm">
+          <div className="shrink-0 rounded-lg border bg-card">
+            <h2 className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+              Participants
+            </h2>
+            <ul className="flex flex-col gap-1.5 px-3 py-2.5 text-sm">
               {roster.map((entry) => {
                 const online = connectedIds.includes(entry.userId);
                 return (
-                  <div key={entry.userId} className="flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-2 truncate">
+                  <li key={entry.userId} className="flex items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-2">
                       <span
                         aria-hidden="true"
                         className={`size-2 shrink-0 rounded-full ${
@@ -241,45 +262,45 @@ export function InterviewRoom({
                       </span>
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground">
-                      {online ? entry.role : "away"}
+                      {online ? entry.role.toLowerCase() : "away"}
                     </span>
-                  </div>
+                  </li>
                 );
               })}
-            </CardContent>
-          </Card>
+            </ul>
+          </div>
 
-          <Card className="flex flex-1 flex-col">
-            <CardHeader>
-              <CardTitle className="text-base">Chat</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-1 flex-col gap-2">
-              <div className="flex-1 space-y-1 overflow-y-auto text-sm">
-                {messages.length === 0 ? (
-                  <span className="text-muted-foreground">No messages yet.</span>
-                ) : (
-                  messages.map((message, index) => (
-                    <div key={index}>
-                      <span className="font-medium">{nameFor(message.userId)}:</span>{" "}
-                      {message.body}
-                    </div>
-                  ))
-                )}
-              </div>
-              <form onSubmit={sendMessage} className="flex gap-2">
-                <Input
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  placeholder="Say something…"
-                  aria-label="Chat message"
-                />
-                <Button type="submit" size="sm" disabled={!provider}>
-                  Send
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
+          {/* Takes the leftover height on desktop; on smaller screens it
+              gets a workable fixed height instead of collapsing. */}
+          <div className="flex h-56 min-h-0 flex-col overflow-hidden rounded-lg border bg-card lg:h-auto lg:flex-1">
+            <h2 className="shrink-0 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+              Chat
+            </h2>
+            <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-2.5 text-sm">
+              {messages.length === 0 ? (
+                <span className="text-muted-foreground">No messages yet.</span>
+              ) : (
+                messages.map((message, index) => (
+                  <div key={index} className="break-words">
+                    <span className="font-medium">{nameFor(message.userId)}:</span>{" "}
+                    {message.body}
+                  </div>
+                ))
+              )}
+            </div>
+            <form onSubmit={sendMessage} className="flex shrink-0 gap-2 border-t p-2">
+              <Input
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder="Say something…"
+                aria-label="Chat message"
+              />
+              <Button type="submit" size="sm" disabled={!provider}>
+                Send
+              </Button>
+            </form>
+          </div>
+        </aside>
       </div>
     </div>
   );

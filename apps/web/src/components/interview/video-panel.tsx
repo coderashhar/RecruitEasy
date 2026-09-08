@@ -56,7 +56,9 @@ export function VideoPanel({ serverUrl, token }: VideoPanelProps) {
 
   if (!joined) {
     return (
-      <div className="flex h-full min-h-48 flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-6 text-center">
+      // Same height as the connected panel, so joining and leaving doesn't
+      // make the rail jump and shove everything below it around.
+      <div className="flex h-64 shrink-0 flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-6 text-center">
         <p className="text-sm text-muted-foreground">
           Your camera and microphone stay off until you join.
         </p>
@@ -73,7 +75,10 @@ export function VideoPanel({ serverUrl, token }: VideoPanelProps) {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-lg border" data-lk-theme="default">
+    <div
+      className="flex h-64 shrink-0 flex-col overflow-hidden rounded-lg border"
+      data-lk-theme="default"
+    >
       <LiveKitRoom
         serverUrl={serverUrl}
         token={token}
@@ -85,9 +90,9 @@ export function VideoPanel({ serverUrl, token }: VideoPanelProps) {
           setError(err.message);
           setJoined(false);
         }}
-        style={{ display: "flex", flexDirection: "column", height: "100%" }}
+        style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
       >
-        <div className="min-h-48 flex-1">
+        <div className="min-h-0 flex-1">
           <VideoTiles />
         </div>
         {/* Renders remote audio; without it participants are silent. */}

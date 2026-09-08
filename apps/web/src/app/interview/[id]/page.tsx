@@ -53,7 +53,9 @@ export default async function InterviewPage({
     : null;
 
   return (
-    <div className="mx-auto max-w-6xl p-6">
+    // Full-bleed, not a centred reading column: this is a tool being operated,
+    // and the code under discussion should get the screen it needs.
+    <div className="p-4">
       <InterviewRoom
         interviewId={access.interview.id}
         token={token}

@@ -1,9 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Editor, { type OnMount } from "@monaco-editor/react";
+import * as monaco from "monaco-editor";
+import Editor, { loader, type OnMount } from "@monaco-editor/react";
 import { MonacoBinding } from "y-monaco";
 import type { SocketYjsProvider } from "./socket-yjs-provider";
+
+// Without this, @monaco-editor/react fetches its own copy of Monaco from a
+// CDN through an AMD loader, while y-monaco binds against the copy webpack
+// bundled — two Monacos in one page, which the browser reports as "Can only
+// have one anonymous define call per script file". The binding would then be
+// holding a different module instance than the editor it is meant to drive.
+//
+// Pointing the loader at the bundled package makes them the same instance,
+// and removes the CDN round-trip (so the editor also works offline).
+loader.config({ monaco });
 
 export interface CodeEditorProps {
   provider: SocketYjsProvider;
@@ -122,7 +133,11 @@ export function CodeEditor({ provider, language }: CodeEditorProps) {
     <>
       <style>{peerStyles(peers)}</style>
       <Editor
-        height="60vh"
+        // 100% of the pane, not a viewport fraction. `60vh` measures against
+        // the window no matter what the parent is doing, so it could never
+        // cooperate with the surrounding flex layout — the pane and the
+        // editor would each pick a different height.
+        height="100%"
         language={language}
         theme="vs-dark"
         onMount={handleMount}

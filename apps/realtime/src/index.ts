@@ -172,13 +172,29 @@ io.on("connection", (socket: Socket<any, any, any, SocketData>) => {
   });
 
   roomPromise
-    .then((room) => {
+    .then(async (room) => {
       onJoin(interviewId, room);
       joined = true;
       socket.join(interviewId);
 
       // Hydrate the newly-joined client with the current document state.
       socket.emit("doc:sync", Buffer.from(encodeState(room)));
+
+      // ...and with who is already here. `presence:join` below only reaches
+      // the people already in the room, so without this the *newcomer* learns
+      // about nobody: whoever joined second sat in an interview reporting an
+      // empty room for its whole duration. Read after socket.join, so this
+      // includes the newcomer itself and the client needs no special case for
+      // "am I in my own list".
+      const peers = await io.in(interviewId).fetchSockets();
+      socket.emit(
+        "presence:list",
+        peers.map((peer) => ({
+          userId: (peer.data as SocketData).userId,
+          role: (peer.data as SocketData).role,
+        })),
+      );
+
       socket.to(interviewId).emit("presence:join", { userId, role });
     })
     .catch((err) => {

@@ -28,6 +28,22 @@ process.env.CORS_ORIGIN = URL;
 // Side-effecting import: this actually starts the server on PORT.
 const { httpServer, io: serverIo } = await import("./index.js");
 
+/**
+ * How long onLeave's final save takes is a network fact, not a code fact —
+ * it's an upsert against a remote Neon instance. Sleeping a fixed 200ms and
+ * hoping guessed wrong often enough to fail this suite intermittently, which
+ * trains you to re-run rather than read failures. Poll for the row instead.
+ */
+async function waitForCodeDocument(interviewId: string, timeoutMs = 8_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const row = await prisma.codeDocument.findUnique({ where: { interviewId } });
+    if (row) return row;
+    if (Date.now() > deadline) return null;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
 function tokenFor(interviewId: string, userId: string, role: "CANDIDATE" | "INTERVIEWER") {
   return jwt.sign({ interviewId, userId, role }, SECRET, {
     algorithm: "HS256",
@@ -231,10 +247,9 @@ describe("realtime server (integration, real DB + real sockets)", () => {
     a.socket.close();
 
     // onLeave triggers an immediate final save on last-participant-disconnect
-    // (see rooms.ts) — no need to wait out the 10s debounce.
-    await new Promise((r) => setTimeout(r, 200));
-
-    const row = await prisma.codeDocument.findUnique({ where: { interviewId } });
+    // (see rooms.ts) — no need to wait out the 10s debounce, but the save
+    // itself still has to reach Postgres.
+    const row = await waitForCodeDocument(interviewId);
     expect(row).not.toBeNull();
 
     const persistedDoc = new Y.Doc();
@@ -253,5 +268,32 @@ describe("realtime server (integration, real DB + real sockets)", () => {
     expect(rehydrated.getText("code").toString()).toBe("persisted across reconnect");
 
     b.socket.close();
+  });
+
+  // The regression this guards: presence:join only reaches sockets already in
+  // the room, so before presence:list existed the *second* person to join
+  // never learned the first was there — they sat in an interview that
+  // reported an empty room for its whole duration, while the first person
+  // saw them fine.
+  test("whoever joins second is told who is already in the room", async () => {
+    const interviewId = await createInterview();
+
+    const first = await connect(tokenFor(interviewId, "user-g", "CANDIDATE"));
+    const firstList: Array<{ userId: string; role: string }> = await first.next("presence:list");
+    expect(firstList.map((p) => p.userId)).toEqual(["user-g"]);
+
+    const second = await connect(tokenFor(interviewId, "user-h", "INTERVIEWER"));
+    const secondList: Array<{ userId: string; role: string }> = await second.next("presence:list");
+
+    // The whole point: the newcomer sees the incumbent, not an empty room.
+    expect(secondList.map((p) => p.userId).sort()).toEqual(["user-g", "user-h"]);
+    expect(secondList.find((p) => p.userId === "user-g")?.role).toBe("CANDIDATE");
+
+    // And the incumbent still hears about the newcomer the old way.
+    const joined: { userId: string; role: string } = await first.next("presence:join");
+    expect(joined).toMatchObject({ userId: "user-h", role: "INTERVIEWER" });
+
+    first.socket.close();
+    second.socket.close();
   });
 });

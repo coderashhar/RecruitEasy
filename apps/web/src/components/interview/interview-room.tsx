@@ -1,13 +1,20 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { InterviewParticipantRole, InterviewStatus } from "@interviewhub/db";
-import { DEFAULT_LANGUAGE, supportedLanguageSchema, type SupportedLanguage } from "@interviewhub/types";
+import {
+  DEFAULT_LANGUAGE,
+  supportedLanguageSchema,
+  type ExecutionResult,
+  type SupportedLanguage,
+} from "@interviewhub/types";
 import type { RosterEntry } from "@/lib/interview-access";
+import { getExecutionResult, runCode } from "@/app/interview/[id]/actions";
 import { SocketYjsProvider, type ConnectionStatus } from "./socket-yjs-provider";
 
 // Monaco measures the DOM and touches `window` on load, so it cannot be
@@ -134,6 +141,9 @@ export function InterviewRoom({
   // hostile. This is a per-viewer preference, not shared document state.
   const [editorHidden, setEditorHidden] = useState(false);
 
+  const [executing, startExecutionTransition] = useTransition();
+  const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null);
+
   useEffect(() => {
     const url = process.env.NEXT_PUBLIC_REALTIME_URL;
     if (!url) {
@@ -165,10 +175,25 @@ export function InterviewRoom({
       setConnectedIds((prev) => prev.filter((id) => id !== userId));
     const handleChat = (message: ChatMessage) => setMessages((prev) => [...prev, message]);
 
+    // Carries only an id (see apps/realtime/src/index.ts's /internal/broadcast
+    // handler) — reaching every socket in the room, including whoever
+    // clicked Run themselves, since it's emitted with io.to(), not
+    // socket.to(). Resolving it into the actual output is the same
+    // getExecutionResult call for every participant; there's no separate
+    // path for the clicker's own view.
+    const handleExecutionResult = ({ executionId }: { executionId: string }) => {
+      getExecutionResult(interviewId, executionId)
+        .then((result) => {
+          if (result) setExecutionResult(result);
+        })
+        .catch((err) => console.error("[interview] failed to fetch execution result", err));
+    };
+
     nextProvider.socket.on("presence:list", handlePresenceList);
     nextProvider.socket.on("presence:join", handlePresenceJoin);
     nextProvider.socket.on("presence:leave", handlePresenceLeave);
     nextProvider.socket.on("chat:message", handleChat);
+    nextProvider.socket.on("execution:result", handleExecutionResult);
 
     // Advisory-only integrity signals — never blocks or auto-flags a
     // candidate (PRD risk mitigation on anti-cheat).
@@ -198,6 +223,28 @@ export function InterviewRoom({
     if (!body || !provider) return;
     provider.socket.emit("chat:message", { interviewId, body });
     setDraft("");
+  }
+
+  function handleRunCode() {
+    if (!provider) return;
+    // The shared Y.Doc is the one source of truth for what's actually in
+    // the editor — reading it here rather than tracking a separate copy of
+    // the source in component state means Run can never send stale code.
+    const source = provider.doc.getText("code").toString();
+    if (!source.trim()) return;
+
+    const formData = new FormData();
+    formData.set("interviewId", interviewId);
+    formData.set("language", language);
+    formData.set("source", source);
+
+    startExecutionTransition(async () => {
+      try {
+        await runCode(formData);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Could not run the code.");
+      }
+    });
   }
 
   const connectionCopy = STATUS_COPY[connection];
@@ -277,6 +324,9 @@ export function InterviewRoom({
                     </option>
                   ))}
                 </select>
+                <Button size="sm" disabled={!provider || executing} onClick={handleRunCode}>
+                  {executing ? "Running…" : "Run"}
+                </Button>
               </div>
               <span className="text-xs text-muted-foreground">
                 {onlineCount} of {roster.length} here
@@ -293,6 +343,41 @@ export function InterviewRoom({
                 </div>
               )}
             </div>
+            {executionResult && (
+              <div className="flex max-h-56 shrink-0 flex-col gap-1.5 overflow-y-auto border-t px-3 py-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant={
+                      executionResult.status === "SUCCEEDED"
+                        ? "secondary"
+                        : executionResult.status === "FAILED" || executionResult.status === "TIMEOUT"
+                          ? "destructive"
+                          : "outline"
+                    }
+                  >
+                    {executionResult.status}
+                  </Badge>
+                  {executionResult.timeMs != null && (
+                    <span className="text-muted-foreground">{executionResult.timeMs} ms</span>
+                  )}
+                  {executionResult.memoryKb != null && (
+                    <span className="text-muted-foreground">
+                      {(executionResult.memoryKb / 1024).toFixed(1)} MB
+                    </span>
+                  )}
+                </div>
+                {executionResult.stdout && (
+                  <pre className="whitespace-pre-wrap rounded bg-muted/50 p-2 font-mono">
+                    {executionResult.stdout}
+                  </pre>
+                )}
+                {executionResult.stderr && (
+                  <pre className="whitespace-pre-wrap rounded bg-destructive/10 p-2 font-mono text-destructive">
+                    {executionResult.stderr}
+                  </pre>
+                )}
+              </div>
+            )}
           </section>
         )}
 

@@ -3,41 +3,80 @@
 import { useState } from "react";
 import {
   ControlBar,
-  GridLayout,
-  ParticipantTile,
+  LiveKitRoom,
   RoomAudioRenderer,
+  VideoTrack,
+  useLocalParticipant,
   useTracks,
 } from "@livekit/components-react";
-import { LiveKitRoom } from "@livekit/components-react";
 import { Track, RoomEvent } from "livekit-client";
 import "@livekit/components-styles";
 
 export interface VideoPanelProps {
   serverUrl: string;
   token: string;
+  /**
+   * True once the editor is hidden and this panel owns the whole room —
+   * it then fills the available height instead of the fixed rail height
+   * it uses sitting alongside the editor.
+   */
+  fill?: boolean;
 }
 
 /**
- * Tiles for every published camera and screen share in the room.
+ * The other person large, you in the corner — the arrangement every call
+ * app converges on, because your own face is a self-check, not the subject.
+ * A screen share outranks a face for the large slot: during a technical
+ * interview the shared screen is usually what's actually being discussed.
  *
- * Screen shares are included in the same grid rather than given a separate
- * surface: during a technical interview the shared screen is usually the
- * subject of the conversation, and splitting it out would leave whichever
- * pane it wasn't in mostly empty.
+ * Hand-rolled rather than LiveKit's FocusLayoutContainer, which puts
+ * everyone-else in a carousel strip — not the corner-overlay picture-in-
+ * picture look this room wants.
  */
-function VideoTiles() {
-  const tracks = useTracks(
-    [
-      { source: Track.Source.Camera, withPlaceholder: true },
-      { source: Track.Source.ScreenShare, withPlaceholder: false },
-    ],
-    { updateOnlyOn: [RoomEvent.ActiveSpeakersChanged], onlySubscribed: false },
+function VideoStage() {
+  // Plain Track.Source[] (not the `{ source, withPlaceholder }` object form)
+  // so this returns TrackReference[], not TrackReferenceOrPlaceholder[] — the
+  // type VideoTrack actually accepts. Placeholders aren't useful here anyway:
+  // "nobody else has published a camera yet" is already covered below by
+  // falling back to your own camera, or to the waiting message.
+  const tracks = useTracks([Track.Source.Camera, Track.Source.ScreenShare], {
+    updateOnlyOn: [RoomEvent.ActiveSpeakersChanged],
+    onlySubscribed: false,
+  });
+  const { localParticipant } = useLocalParticipant();
+
+  const screenShare = tracks.find((track) => track.source === Track.Source.ScreenShare);
+  const localCamera = tracks.find(
+    (track) =>
+      track.source === Track.Source.Camera &&
+      track.participant.identity === localParticipant.identity,
+  );
+  const remoteCamera = tracks.find(
+    (track) =>
+      track.source === Track.Source.Camera &&
+      track.participant.identity !== localParticipant.identity,
   );
 
+  // Before anyone else has joined, your own camera takes the large slot —
+  // an empty frame would read as broken rather than as "waiting".
+  const main = screenShare ?? remoteCamera ?? localCamera;
+  const showPip = Boolean(localCamera) && localCamera !== main;
+
   return (
-    <GridLayout tracks={tracks} style={{ height: "100%" }}>
-      <ParticipantTile />
-    </GridLayout>
+    <div className="relative h-full w-full bg-black">
+      {main ? (
+        <VideoTrack trackRef={main} className="h-full w-full object-contain" />
+      ) : (
+        <div className="flex h-full items-center justify-center text-sm text-white/60">
+          Waiting for video…
+        </div>
+      )}
+      {showPip && localCamera && (
+        <div className="absolute right-3 bottom-3 h-24 w-36 overflow-hidden rounded-md border-2 border-white/80 shadow-lg sm:h-28 sm:w-44">
+          <VideoTrack trackRef={localCamera} className="h-full w-full object-cover" />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -50,15 +89,19 @@ function VideoTiles() {
  * themselves broadcasting. The browser's own permission prompt is also far
  * less alarming when it follows a button the person just pressed.
  */
-export function VideoPanel({ serverUrl, token }: VideoPanelProps) {
+export function VideoPanel({ serverUrl, token, fill = false }: VideoPanelProps) {
   const [joined, setJoined] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Same height in both the "not joined" and connected states so joining and
+  // leaving doesn't make the rail jump and shove everything below it around.
+  const sizeClassName = fill ? "min-h-0 flex-1" : "h-64 shrink-0";
+
   if (!joined) {
     return (
-      // Same height as the connected panel, so joining and leaving doesn't
-      // make the rail jump and shove everything below it around.
-      <div className="flex h-64 shrink-0 flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-6 text-center">
+      <div
+        className={`flex ${sizeClassName} flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-6 text-center`}
+      >
         <p className="text-sm text-muted-foreground">
           Your camera and microphone stay off until you join.
         </p>
@@ -76,7 +119,7 @@ export function VideoPanel({ serverUrl, token }: VideoPanelProps) {
 
   return (
     <div
-      className="flex h-64 shrink-0 flex-col overflow-hidden rounded-lg border"
+      className={`flex ${sizeClassName} flex-col overflow-hidden rounded-lg border`}
       data-lk-theme="default"
     >
       <LiveKitRoom
@@ -93,7 +136,7 @@ export function VideoPanel({ serverUrl, token }: VideoPanelProps) {
         style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
       >
         <div className="min-h-0 flex-1">
-          <VideoTiles />
+          <VideoStage />
         </div>
         {/* Renders remote audio; without it participants are silent. */}
         <RoomAudioRenderer />

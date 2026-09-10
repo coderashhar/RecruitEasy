@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { InterviewParticipantRole, InterviewStatus } from "@interviewhub/db";
-import { DEFAULT_LANGUAGE } from "@interviewhub/types";
+import { DEFAULT_LANGUAGE, supportedLanguageSchema, type SupportedLanguage } from "@interviewhub/types";
 import type { RosterEntry } from "@/lib/interview-access";
 import { SocketYjsProvider, type ConnectionStatus } from "./socket-yjs-provider";
 
@@ -96,6 +96,43 @@ export function InterviewRoom({
     () => roster.find((entry) => entry.userId === currentUserId),
     [roster, currentUserId],
   );
+
+  // Lives in doc.getMap("meta"), not component state, so a language switch
+  // travels over the same Y.Doc both people already share — rooms.ts's
+  // persistSnapshot() reads this exact key, so this is also what finally
+  // makes CodeDocument.language record something other than the default.
+  const [language, setLanguage] = useState<SupportedLanguage>(DEFAULT_LANGUAGE);
+
+  useEffect(() => {
+    if (!provider) return;
+    const meta = provider.doc.getMap("meta");
+
+    const readLanguage = () => {
+      const current = meta.get("language");
+      if (supportedLanguageSchema.safeParse(current).success) {
+        setLanguage(current as SupportedLanguage);
+      }
+    };
+
+    // Covers a late joiner: doc:sync may already have hydrated meta with a
+    // language someone picked before this client connected.
+    readLanguage();
+    meta.observe(readLanguage);
+    return () => meta.unobserve(readLanguage);
+  }, [provider]);
+
+  function handleLanguageChange(next: SupportedLanguage) {
+    // Yjs applies a local set synchronously and notifies observers in the
+    // same tick, so the readLanguage() observer above updates `language` —
+    // no separate setLanguage call needed here, and both clients end up
+    // reading the change through the identical path.
+    provider?.doc.getMap("meta").set("language", next);
+  }
+
+  // Local-only, deliberately not shared over the Y.Doc like `language` is:
+  // one person collapsing the editor mid-thought for the other would be
+  // hostile. This is a per-viewer preference, not shared document state.
+  const [editorHidden, setEditorHidden] = useState(false);
 
   useEffect(() => {
     const url = process.env.NEXT_PUBLIC_REALTIME_URL;
@@ -205,6 +242,13 @@ export function InterviewRoom({
           >
             {connectionCopy.label}
           </Badge>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setEditorHidden((hidden) => !hidden)}
+          >
+            {editorHidden ? "Show editor" : "Hide editor"}
+          </Button>
         </div>
       </header>
 
@@ -213,31 +257,56 @@ export function InterviewRoom({
             `--card-spacing` padding break the parent chain Monaco measures
             itself against, which is what collapsed the editor to a few
             pixels wide. A plain bordered box looks the same and measures. */}
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
-          <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-            <span className="font-mono text-xs text-muted-foreground">
-              shared editor · {DEFAULT_LANGUAGE}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {onlineCount} of {roster.length} here
-            </span>
-          </div>
-          <div className="min-h-0 flex-1">
-            {provider ? (
-              <CodeEditor provider={provider} language={DEFAULT_LANGUAGE} />
-            ) : (
-              <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
-                {connection === "unauthorized"
-                  ? "Your session for this interview expired. Reload the page."
-                  : "Connecting…"}
+        {!editorHidden && (
+          <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs text-muted-foreground">shared editor</span>
+                <select
+                  aria-label="Language"
+                  value={language}
+                  disabled={!provider}
+                  onChange={(event) =>
+                    handleLanguageChange(event.target.value as SupportedLanguage)
+                  }
+                  className="h-6 rounded-md border border-input bg-transparent px-1.5 font-mono text-xs text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
+                >
+                  {supportedLanguageSchema.options.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </div>
-            )}
-          </div>
-        </section>
+              <span className="text-xs text-muted-foreground">
+                {onlineCount} of {roster.length} here
+              </span>
+            </div>
+            <div className="min-h-0 flex-1">
+              {provider ? (
+                <CodeEditor provider={provider} language={language} />
+              ) : (
+                <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                  {connection === "unauthorized"
+                    ? "Your session for this interview expired. Reload the page."
+                    : "Connecting…"}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
-        <aside className="flex shrink-0 flex-col gap-3 lg:h-full lg:w-[360px]">
+        {/* Fills the row when the editor is hidden, rather than sitting in a
+            fixed rail — video is the whole room at that point, not a sidebar. */}
+        <aside
+          className={
+            editorHidden
+              ? "flex min-h-0 flex-1 flex-col gap-3"
+              : "flex shrink-0 flex-col gap-3 lg:h-full lg:w-[360px]"
+          }
+        >
           {videoToken && videoServerUrl && (
-            <VideoPanel serverUrl={videoServerUrl} token={videoToken} />
+            <VideoPanel serverUrl={videoServerUrl} token={videoToken} fill={editorHidden} />
           )}
 
           <div className="shrink-0 rounded-lg border bg-card">

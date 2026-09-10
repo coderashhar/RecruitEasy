@@ -55,7 +55,8 @@ packages/
   db/         Prisma schema + client, shared by web and realtime.
   types/      Zod schemas — one source of truth for contracts crossing a boundary.
 infra/
-  caddy/      Reverse proxy + TLS for the VPS. Judge0 joins this later.
+  caddy/      Reverse proxy + TLS for the VPS.
+  judge0/     Sandboxed code execution stack (Run button) — self-hosted, per PRD FR-3.1-3.3.
 ```
 
 `apps/realtime` runs on Node directly, **not** on Vercel: it holds one in-memory

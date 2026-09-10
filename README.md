@@ -14,7 +14,8 @@ packages/
   db/         Prisma schema + client, shared by web and realtime.
   types/      Zod schemas shared across apps — one source of truth for API contracts.
 infra/
-  caddy/      Reverse proxy + TLS for the VPS. Judge0 joins this in Phase 1.
+  caddy/      Reverse proxy + TLS for the VPS.
+  judge0/     Sandboxed code execution stack backing the Run button — see its own README.
 ```
 
 Turborepo + npm workspaces. `apps/realtime` runs on Node directly (not Vercel) because it holds
@@ -61,8 +62,9 @@ in-memory `Y.Doc` state per interview room — see ADR-002 in the plan.
    `REALTIME_JWT_SECRET` and use the same value in `apps/web/.env.local` and `apps/realtime/.env`
    — the web app signs interview join tokens with it, the realtime service verifies them.
 
-   Everything else in those files (LiveKit, R2, Upstash, Resend, Judge0, Gemini) is Phase 1
-   step 3 onward — leave blank until you get there.
+   Everything else in those files (LiveKit, R2, Upstash, Resend, Gemini) is Phase 1 step 3
+   onward — leave blank until you get there. Judge0 (`JUDGE0_URL`, `JUDGE0_AUTH_TOKEN`) is
+   filled in by step 8 below, once that stack is actually running.
 
 5. **Database:**
 
@@ -102,6 +104,18 @@ in-memory `Y.Doc` state per interview room — see ADR-002 in the plan.
    first, so it's safe to repeat. Every real account still provisions itself the normal way — sign
    up, then `/onboarding` — the seed just gives the *other* side of the table something to look at.
 
+9. **Judge0** (optional — only needed for the Run button):
+
+   ```bash
+   cd infra/judge0
+   cp judge0.conf.example judge0.conf   # fill in the blanks — see its README
+   docker compose up -d
+   ```
+
+   Then set `JUDGE0_URL=http://localhost:2358` and `JUDGE0_AUTH_TOKEN` (matching
+   `judge0.conf`'s `AUTHN_TOKEN`) in `apps/web/.env.local`. Without this stack running, the room
+   still works — editor, video, chat — the Run button is the only thing that needs it.
+
 ## Trying the interview room
 
 1. Sign up two accounts (or promote two seeded-adjacent real accounts with `set-role`, above): one
@@ -125,7 +139,7 @@ in-memory `Y.Doc` state per interview room — see ADR-002 in the plan.
 - **`apps/web` → Vercel.** Set the project's Root Directory to `apps/web`
   ([`vercel.json`](apps/web/vercel.json) handles the monorepo install/build from there). Add the
   same env vars from `apps/web/.env.local`.
-- **`apps/realtime` (+ Judge0 in Phase 1) → one small VPS**, reverse-proxied by
+- **`apps/realtime` (+ [`infra/judge0`](infra/judge0)) → one small VPS**, reverse-proxied by
   [`infra/caddy`](infra/caddy). `apps/realtime/Dockerfile` builds the service; bring it up with
   `infra/caddy/docker-compose.yml`.
 

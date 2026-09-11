@@ -1,0 +1,54 @@
+# Judge0's own config file format — keys not listed here fall back to
+# Judge0's documented defaults (see https://github.com/judge0/judge0/blob/master/judge0.conf
+# for the exhaustive reference). Only the ones this deployment actually
+# needs to set, or override away from the default, are listed below.
+#
+# Copy to judge0.conf (gitignored — these become real database/API
+# credentials) and fill in real values. Generate secrets with, e.g.:
+#   openssl rand -hex 32
+
+# --- Required: Judge0 refuses to start without these ---
+# Both default to localhost inside Judge0 itself — wrong for this
+# compose file, where postgres and redis are reachable by service name,
+# not localhost. Must match the service names in docker-compose.yml.
+POSTGRES_HOST=db
+REDIS_HOST=redis
+REDIS_PASSWORD=
+POSTGRES_DB=judge0
+POSTGRES_USER=judge0
+POSTGRES_PASSWORD=
+
+# --- API authentication ---
+# Disabled by default upstream, which would leave the sandbox reachable by
+# anything on the same network with no credential at all. apps/web's
+# JUDGE0_URL caller (packages: apps/web/src/lib) must send this same value
+# back in the X-Auth-Token header on every request.
+AUTHN_HEADER=X-Auth-Token
+AUTHN_TOKEN=
+
+# --- Sandbox network isolation (PRD §13: "no network access from execution
+#     containers") ---
+# ENABLE_NETWORK is already false by default, but ALLOW_ENABLE_NETWORK
+# defaults to true — meaning a submission's own request body can ask to
+# turn ENABLE_NETWORK on for itself. Both must be locked to false, or the
+# default alone is not actually enforced against a submission that asks.
+ENABLE_NETWORK=false
+ALLOW_ENABLE_NETWORK=false
+
+# --- Resource ceilings ---
+# These are the *maximum* any single submission can request, regardless of
+# what an individual execute request asks for (FR-3.3: isolated per
+# request, with hard limits). Tightened below Judge0's own defaults: this
+# runs one interview room's Run button, not a public judging service, and
+# a single VPS has to fit server + worker + db + redis on top of whatever
+# it's already running.
+MAX_CPU_TIME_LIMIT=10
+MAX_WALL_TIME_LIMIT=15
+MAX_MEMORY_LIMIT=256000
+MAX_QUEUE_SIZE=20
+
+# Per-submission defaults when a request doesn't specify its own — these
+# match Judge0's own defaults, kept explicit rather than implied.
+CPU_TIME_LIMIT=5
+WALL_TIME_LIMIT=10
+MEMORY_LIMIT=128000

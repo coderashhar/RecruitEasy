@@ -55,7 +55,8 @@ packages/
   db/         Prisma schema + client, shared by web and realtime.
   types/      Zod schemas — one source of truth for contracts crossing a boundary.
 infra/
-  caddy/      Reverse proxy + TLS for the VPS. Judge0 joins this later.
+  caddy/      Reverse proxy + TLS for the VPS.
+  judge0/     Sandboxed code execution stack (Run button) — self-hosted, per PRD FR-3.1-3.3.
 ```
 
 `apps/realtime` runs on Node directly, **not** on Vercel: it holds one in-memory
@@ -85,6 +86,18 @@ server-side. `scheduleInterviewForOrg` in
 [`scheduling.ts`](apps/web/src/lib/scheduling.ts) is the reference shape: a typed
 error class, org-scoped validation before any write, then the mutation and its
 `AuditLog` row in one `prisma.$transaction`.
+
+**Neon sleeps, and Prisma's default `connect_timeout` is too short for it.**
+An idle Neon branch suspends; the next connection has to wake it, which
+measured ~3s here and can run longer after a night idle. Prisma waits 5s and
+then reports `Can't reach database server at ...` — which reads as "the
+database is down" or "DNS is broken", not as "it was still waking up". Every
+`DATABASE_URL` therefore carries `connect_timeout=30`.
+
+When adding it by hand, mind the quoting: `.env` values are quoted, so the
+parameter belongs *inside* the closing quote. Appending after it yields
+`...channel_binding=require"&connect_timeout=30`, which breaks the connection
+outright rather than fixing anything.
 
 **Turbopack resolves modules differently from tsc, vitest and tsx.** All three
 of those map a `./foo.js` specifier onto `./foo.ts`; Turbopack does not, for a

@@ -16,6 +16,8 @@ build/
 .env.local
 .env.*.local
 !.env.example
+infra/judge0/judge0.conf
+!infra/judge0/judge0.conf.example
 
 # turbo
 .turbo/

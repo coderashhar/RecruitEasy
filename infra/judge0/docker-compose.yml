@@ -1,0 +1,69 @@
+# Self-hosted code execution sandbox (PRD FR-3.1–3.3; ADR-005 and
+# supportedLanguageSchema in packages/types/src/execution.ts were already
+# written against Judge0's language_id enum before this stack existed).
+#
+# Structure matches Judge0's own reference compose file
+# (https://github.com/judge0/judge0/blob/master/docker-compose.yml) —
+# diverges only in pinning every image to an exact version instead of
+# `latest`. An untested upgrade here is untested sandbox behaviour for
+# candidate code, which is exactly the risk PRD §13 calls out.
+#
+# For local dev, `server`'s port is published straight to the host, since
+# apps/web's dev server also runs on the host and reaches it via
+# JUDGE0_URL=http://localhost:2358. On the VPS this joins the same network
+# as apps/realtime.
+x-logging:
+  &default-logging
+  logging:
+    driver: json-file
+    options:
+      max-size: 100M
+
+services:
+  server:
+    image: judge0/judge0:1.13.1
+    volumes:
+      - ./judge0.conf:/judge0.conf:ro
+    ports:
+      - "2358:2358"
+    privileged: true
+    <<: *default-logging
+    restart: unless-stopped
+    depends_on:
+      - db
+      - redis
+
+  # Same image, different entrypoint — this is what actually invokes isolate
+  # and runs submitted code; `server` only accepts requests and queues them.
+  worker:
+    image: judge0/judge0:1.13.1
+    command: ["./scripts/workers"]
+    volumes:
+      - ./judge0.conf:/judge0.conf:ro
+    privileged: true
+    <<: *default-logging
+    restart: unless-stopped
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:16.2
+    env_file: judge0.conf
+    volumes:
+      - data:/var/lib/postgresql/data/
+    <<: *default-logging
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2.4
+    command: [
+      "bash", "-c",
+      'docker-entrypoint.sh --appendonly no --requirepass "$$REDIS_PASSWORD"'
+    ]
+    env_file: judge0.conf
+    <<: *default-logging
+    restart: unless-stopped
+
+volumes:
+  data:

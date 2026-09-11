@@ -96,6 +96,7 @@ export async function scheduleInterviewForOrg(
         applicationId: application.id,
         scheduledAt: input.scheduledAt,
         durationMins: input.durationMins,
+        round: input.round,
         // Deliberately not the seed's `interview_${applicationId}` convention —
         // roomName is @unique, and a second interview on the same application
         // (a reschedule, a follow-up round) would collide on it.

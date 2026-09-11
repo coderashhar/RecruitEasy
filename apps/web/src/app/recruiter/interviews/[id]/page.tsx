@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { InterviewStatus } from "@interviewhub/db";
 import { InterviewStatusActions } from "@/components/interview/interview-status-actions";
@@ -65,6 +67,7 @@ export default async function InterviewDetailPage({
               {interview.application.candidate.name} — {interview.application.job.title}
             </CardTitle>
             <CardDescription>
+              Round {interview.round} ·{" "}
               {interview.scheduledAt.toLocaleString(undefined, {
                 dateStyle: "medium",
                 timeStyle: "short",
@@ -82,6 +85,20 @@ export default async function InterviewDetailPage({
                 interviewId={interview.id}
                 scheduledAt={interview.scheduledAt}
                 durationMins={interview.durationMins}
+              />
+            )}
+            {interview.status === "COMPLETED" && (
+              <Button
+                size="sm"
+                variant="outline"
+                nativeButton={false}
+                render={
+                  <Link
+                    href={`/recruiter/schedule?applicationId=${interview.applicationId}&round=${interview.round + 1}`}
+                  >
+                    Schedule round {interview.round + 1}
+                  </Link>
+                }
               />
             )}
           </CardContent>

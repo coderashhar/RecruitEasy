@@ -35,6 +35,7 @@ function input(overrides: Partial<ScheduleInterviewInput> = {}): ScheduleIntervi
     scheduledAt: new Date("2026-10-01T10:00:00Z"),
     durationMins: 60,
     interviewerIds: ["user_interviewer"],
+    round: 1,
     ...overrides,
   };
 }
@@ -145,6 +146,18 @@ describe("scheduleInterviewForOrg", () => {
     );
     const participants = createInterview.mock.calls[0][0].data.participants.create;
     expect(participants).toHaveLength(2); // candidate + one interviewer, not two
+  });
+
+  test("round from input is forwarded to the interview create", async () => {
+    findFirstApplication.mockResolvedValue({ id: "app_1", candidateId: "candidate_1" });
+    findManyUser.mockResolvedValue([{ id: "user_interviewer" }]);
+    createInterview.mockResolvedValue({ id: "interview_1" });
+
+    await scheduleInterviewForOrg(ORG_ID, ACTOR_ID, input({ round: 3 }));
+
+    expect(createInterview).toHaveBeenCalledWith({
+      data: expect.objectContaining({ round: 3 }),
+    });
   });
 
   describe("interviewer double-booking", () => {

@@ -24,6 +24,7 @@ export const scheduleInterviewSchema = z.object({
   scheduledAt: submittedDateSchema,
   durationMins: z.number().int().min(15).max(240).default(60),
   interviewerIds: z.array(z.string().min(1)).min(1),
+  round: z.number().int().min(1).default(1),
 });
 export type ScheduleInterviewInput = z.infer<typeof scheduleInterviewSchema>;
 

@@ -1,34 +1,9 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import type { ApplicationStatus } from "@interviewhub/db";
-import { ApplicationStatusSelect } from "@/components/pipeline/application-status-select";
+import { PipelineTable, type PipelineRow } from "@/components/pipeline/pipeline-table";
 import { getRecruiterPipeline, getUpcomingInterviews } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
-
-// Keyed by the enum, then read back as the option list. `satisfies
-// readonly ApplicationStatus[]` on a plain array would only check that each
-// entry IS a status, not that every status is present — a new enum value
-// would compile clean, silently miss the dropdown, and render as whichever
-// option happened to match first. A Record has to name every key.
-const APPLICATION_STATUS_LABEL: Record<ApplicationStatus, string> = {
-  APPLIED: "Applied",
-  SCREENING: "Screening",
-  INTERVIEWING: "Interviewing",
-  OFFER: "Offer",
-  HIRED: "Hired",
-  REJECTED: "Rejected",
-};
-
-const APPLICATION_STATUSES = Object.keys(APPLICATION_STATUS_LABEL) as ApplicationStatus[];
 
 export default async function RecruiterDashboard() {
   const { user } = await requireCurrentUser(["RECRUITER", "INTERVIEWER", "ADMIN"]);
@@ -37,8 +12,14 @@ export default async function RecruiterDashboard() {
     getUpcomingInterviews(user.orgId),
   ]);
 
-  const applications = jobs.flatMap((job) =>
-    job.applications.map((application) => ({ job, application })),
+  const pipelineRows: PipelineRow[] = jobs.flatMap((job) =>
+    job.applications.map((application) => ({
+      applicationId: application.id,
+      candidateName: application.candidate.name,
+      jobTitle: job.title,
+      status: application.status,
+      atsScore: application.resumes[0]?.atsReports[0]?.score ?? null,
+    })),
   );
 
   return (
@@ -48,9 +29,9 @@ export default async function RecruiterDashboard() {
           <div>
             <CardTitle>Pipeline</CardTitle>
             <CardDescription>
-              {applications.length === 0
+              {pipelineRows.length === 0
                 ? "No candidates yet."
-                : `${applications.length} application${applications.length === 1 ? "" : "s"} across ${jobs.length} job${jobs.length === 1 ? "" : "s"}.`}
+                : `${pipelineRows.length} application${pipelineRows.length === 1 ? "" : "s"} across ${jobs.length} job${jobs.length === 1 ? "" : "s"}.`}
             </CardDescription>
           </div>
           <div className="flex gap-2">
@@ -73,37 +54,7 @@ export default async function RecruiterDashboard() {
             />
           </div>
         </CardHeader>
-        {applications.length > 0 && (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Candidate</TableHead>
-                <TableHead>Job</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>ATS score</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {applications.map(({ job, application }) => {
-                const latestReport = application.resumes[0]?.atsReports[0];
-                return (
-                  <TableRow key={application.id}>
-                    <TableCell className="font-medium">{application.candidate.name}</TableCell>
-                    <TableCell>{job.title}</TableCell>
-                    <TableCell>
-                      <ApplicationStatusSelect
-                        applicationId={application.id}
-                        status={application.status}
-                        statuses={APPLICATION_STATUSES}
-                      />
-                    </TableCell>
-                    <TableCell>{latestReport ? `${latestReport.score}/100` : "—"}</TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        )}
+        {pipelineRows.length > 0 && <PipelineTable rows={pipelineRows} />}
       </Card>
       <Card>
         <CardHeader>

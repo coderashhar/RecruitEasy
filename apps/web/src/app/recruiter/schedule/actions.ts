@@ -18,6 +18,7 @@ export async function scheduleInterview(formData: FormData) {
     scheduledAt: formData.get("scheduledAt"),
     durationMins: Number(formData.get("durationMins") || 60),
     interviewerIds: formData.getAll("interviewerIds"),
+    round: Number(formData.get("round") || 1),
   });
 
   if (!parsed.success) {

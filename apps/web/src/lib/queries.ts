@@ -161,6 +161,27 @@ export async function getInterviewDetail(orgId: string, interviewId: string) {
 }
 
 /**
+ * ATS report for a candidate's application — the latest report for the
+ * most recent resume, with job context for display.
+ */
+export async function getAtsReportForCandidate(applicationId: string, candidateId: string) {
+  return prisma.application.findFirst({
+    where: { id: applicationId, candidateId },
+    select: {
+      id: true,
+      job: { select: { id: true, title: true, requiredSkills: true } },
+      resumes: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        include: {
+          atsReports: { orderBy: { createdAt: "desc" }, take: 1 },
+        },
+      },
+    },
+  });
+}
+
+/**
  * Jobs visible to candidates — everything in the org, most recent first.
  * Includes application count so the listing can show demand signals.
  */

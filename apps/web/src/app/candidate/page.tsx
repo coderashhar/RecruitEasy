@@ -126,14 +126,27 @@ export default async function CandidateDashboard() {
         </CardHeader>
         {applications.length > 0 && (
           <CardContent className="flex flex-col gap-2">
-            {applications.map((application) => (
-              <div key={application.id} className="flex items-center justify-between gap-2 text-sm">
-                <span className="font-medium">{application.job.title}</span>
-                <Badge variant={APPLICATION_STATUS_VARIANT[application.status]}>
-                  {application.status}
-                </Badge>
-              </div>
-            ))}
+            {applications.map((application) => {
+              const hasReport = application.resumes[0]?.atsReports[0];
+              return (
+                <div key={application.id} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="font-medium">{application.job.title}</span>
+                  <div className="flex items-center gap-2">
+                    {hasReport && (
+                      <Link
+                        href={`/candidate/applications/${application.id}/ats`}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        ATS: {hasReport.score}/100
+                      </Link>
+                    )}
+                    <Badge variant={APPLICATION_STATUS_VARIANT[application.status]}>
+                      {application.status}
+                    </Badge>
+                  </div>
+                </div>
+              );
+            })}
           </CardContent>
         )}
       </Card>

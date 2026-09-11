@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireCurrentUser } from "@/lib/users";
 import { getAtsReportForCandidate } from "@/lib/queries";
+import { PolishButton } from "./polish-button";
 
 const CATEGORY_LABELS: Record<string, string> = {
   grammar: "Grammar",
@@ -176,6 +177,9 @@ export default async function AtsReportPage({
           </CardContent>
         </Card>
       )}
+
+      {/* Resume polish */}
+      <PolishButton applicationId={id} />
     </div>
   );
 }

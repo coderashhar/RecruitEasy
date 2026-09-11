@@ -141,6 +141,12 @@ export function InterviewRoom({
   // hostile. This is a per-viewer preference, not shared document state.
   const [editorHidden, setEditorHidden] = useState(false);
 
+  // Only consulted with the editor hidden. Alongside the editor, people and
+  // chat live in the rail and are always visible; once the call owns the
+  // screen they'd be taking room from the thing you switched over to see, so
+  // they move behind a toggle and default to closed.
+  const [sidePanel, setSidePanel] = useState<"people" | "chat" | null>(null);
+
   const [executing, startExecutionTransition] = useTransition();
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null);
 
@@ -251,6 +257,75 @@ export function InterviewRoom({
 
   const onlineCount = roster.filter((entry) => connectedIds.includes(entry.userId)).length;
 
+  // Defined once and placed in two different containers — the rail beside the
+  // editor, and the slide-in panel when the call owns the screen. Same markup
+  // either way, so the two modes can't drift apart.
+  const participantsBlock = (
+    <div className="shrink-0 overflow-hidden rounded-lg border bg-card">
+      <h2 className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+        Participants
+      </h2>
+      <ul className="flex flex-col gap-1.5 px-3 py-2.5 text-sm">
+        {roster.map((entry) => {
+          const online = connectedIds.includes(entry.userId);
+          return (
+            <li key={entry.userId} className="flex items-center justify-between gap-2">
+              <span className="flex min-w-0 items-center gap-2">
+                <span
+                  aria-hidden="true"
+                  className={`size-2 shrink-0 rounded-full ${
+                    online ? "bg-emerald-500" : "bg-muted-foreground/40"
+                  }`}
+                />
+                <span className="truncate">
+                  {entry.name}
+                  {entry.userId === currentUserId && " (you)"}
+                </span>
+              </span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {online ? entry.role.toLowerCase() : "away"}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+
+  const chatBlock = (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
+      <h2 className="shrink-0 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+        Chat
+      </h2>
+      <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-2.5 text-sm">
+        {messages.length === 0 ? (
+          <span className="text-muted-foreground">No messages yet.</span>
+        ) : (
+          messages.map((message, index) => (
+            <div key={index} className="break-words">
+              <span className="font-medium">{nameFor(message.userId)}:</span> {message.body}
+            </div>
+          ))
+        )}
+      </div>
+      <form onSubmit={sendMessage} className="flex shrink-0 gap-2 border-t p-2">
+        <Input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="Say something…"
+          aria-label="Chat message"
+        />
+        <Button type="submit" size="sm" disabled={!provider}>
+          Send
+        </Button>
+      </form>
+    </div>
+  );
+
+  const videoBlock = videoToken && videoServerUrl && (
+    <VideoPanel serverUrl={videoServerUrl} token={videoToken} fill={editorHidden} />
+  );
+
   return (
     // `min-h-0` at every level of this chain is what lets the editor pane
     // resolve a real height. A flex child defaults to `min-height: auto`,
@@ -289,6 +364,29 @@ export function InterviewRoom({
           >
             {connectionCopy.label}
           </Badge>
+          {/* People and chat are always on screen in the rail alongside the
+              editor, so these only earn their place once the call has taken
+              over the room. */}
+          {editorHidden && (
+            <>
+              <Button
+                size="sm"
+                variant={sidePanel === "people" ? "secondary" : "outline"}
+                aria-pressed={sidePanel === "people"}
+                onClick={() => setSidePanel((open) => (open === "people" ? null : "people"))}
+              >
+                People ({onlineCount})
+              </Button>
+              <Button
+                size="sm"
+                variant={sidePanel === "chat" ? "secondary" : "outline"}
+                aria-pressed={sidePanel === "chat"}
+                onClick={() => setSidePanel((open) => (open === "chat" ? null : "chat"))}
+              >
+                Chat
+              </Button>
+            </>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -381,80 +479,26 @@ export function InterviewRoom({
           </section>
         )}
 
-        {/* Fills the row when the editor is hidden, rather than sitting in a
-            fixed rail — video is the whole room at that point, not a sidebar. */}
-        <aside
-          className={
-            editorHidden
-              ? "flex min-h-0 flex-1 flex-col gap-3"
-              : "flex shrink-0 flex-col gap-3 lg:h-full lg:w-[360px]"
-          }
-        >
-          {videoToken && videoServerUrl && (
-            <VideoPanel serverUrl={videoServerUrl} token={videoToken} fill={editorHidden} />
-          )}
+        {editorHidden ? (
+          <>
+            {/* The call gets the whole row. Nothing else competes for height
+                here — that competition is exactly what left the video
+                letterboxed in a short band with dead space beneath it. */}
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">{videoBlock}</div>
 
-          <div className="shrink-0 rounded-lg border bg-card">
-            <h2 className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-              Participants
-            </h2>
-            <ul className="flex flex-col gap-1.5 px-3 py-2.5 text-sm">
-              {roster.map((entry) => {
-                const online = connectedIds.includes(entry.userId);
-                return (
-                  <li key={entry.userId} className="flex items-center justify-between gap-2">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span
-                        aria-hidden="true"
-                        className={`size-2 shrink-0 rounded-full ${
-                          online ? "bg-emerald-500" : "bg-muted-foreground/40"
-                        }`}
-                      />
-                      <span className="truncate">
-                        {entry.name}
-                        {entry.userId === currentUserId && " (you)"}
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {online ? entry.role.toLowerCase() : "away"}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-
-          {/* Takes the leftover height on desktop; on smaller screens it
-              gets a workable fixed height instead of collapsing. */}
-          <div className="flex h-56 min-h-0 flex-col overflow-hidden rounded-lg border bg-card lg:h-auto lg:flex-1">
-            <h2 className="shrink-0 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-              Chat
-            </h2>
-            <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-2.5 text-sm">
-              {messages.length === 0 ? (
-                <span className="text-muted-foreground">No messages yet.</span>
-              ) : (
-                messages.map((message, index) => (
-                  <div key={index} className="break-words">
-                    <span className="font-medium">{nameFor(message.userId)}:</span>{" "}
-                    {message.body}
-                  </div>
-                ))
-              )}
-            </div>
-            <form onSubmit={sendMessage} className="flex shrink-0 gap-2 border-t p-2">
-              <Input
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder="Say something…"
-                aria-label="Chat message"
-              />
-              <Button type="submit" size="sm" disabled={!provider}>
-                Send
-              </Button>
-            </form>
-          </div>
-        </aside>
+            {sidePanel && (
+              <aside className="flex w-full shrink-0 flex-col gap-3 lg:h-full lg:w-[360px]">
+                {sidePanel === "people" ? participantsBlock : chatBlock}
+              </aside>
+            )}
+          </>
+        ) : (
+          <aside className="flex shrink-0 flex-col gap-3 lg:h-full lg:w-[360px]">
+            {videoBlock}
+            {participantsBlock}
+            {chatBlock}
+          </aside>
+        )}
       </div>
     </div>
   );

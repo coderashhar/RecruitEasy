@@ -205,6 +205,7 @@ model Interview {
   application   Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   scheduledAt   DateTime
   durationMins  Int              @default(60)
+  round         Int              @default(1)
   status        InterviewStatus  @default(SCHEDULED)
   roomName      String           @unique
   createdAt     DateTime         @default(now())

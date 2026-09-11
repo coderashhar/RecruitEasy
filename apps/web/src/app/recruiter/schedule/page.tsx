@@ -14,7 +14,14 @@ import { scheduleInterview } from "./actions";
 const selectClassName =
   "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30";
 
-export default async function SchedulePage() {
+export default async function SchedulePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ applicationId?: string; round?: string }>;
+}) {
+  const { applicationId: prefillAppId, round: roundStr } = await searchParams;
+  const prefillRound = roundStr ? parseInt(roundStr, 10) : 1;
+
   const { user } = await requireCurrentUser(["RECRUITER", "ADMIN"]);
   const [applications, interviewers] = await Promise.all([
     getSchedulableApplications(user.orgId),
@@ -29,12 +36,24 @@ export default async function SchedulePage() {
           <CardDescription>Pick an application, a time, and who&apos;s interviewing.</CardDescription>
         </CardHeader>
         <form action={scheduleInterview} className="flex flex-col gap-5 px-6 pb-6">
+          <input type="hidden" name="round" value={prefillRound} />
+          {prefillRound > 1 && (
+            <p className="text-sm font-medium text-muted-foreground">
+              Scheduling round {prefillRound}
+            </p>
+          )}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="applicationId">Application</Label>
             {applications.length === 0 ? (
               <p className="text-sm text-muted-foreground">No applications to schedule yet.</p>
             ) : (
-              <select id="applicationId" name="applicationId" required className={selectClassName}>
+              <select
+                id="applicationId"
+                name="applicationId"
+                required
+                defaultValue={prefillAppId}
+                className={selectClassName}
+              >
                 {applications.map((application) => (
                   <option key={application.id} value={application.id}>
                     {application.candidate.name} — {application.job.title}

@@ -36,7 +36,7 @@ const CodeEditor = dynamic(() => import("./code-editor").then((m) => m.CodeEdito
 const VideoPanel = dynamic(() => import("./video-panel").then((m) => m.VideoPanel), {
   ssr: false,
   loading: () => (
-    <div className="flex h-64 shrink-0 items-center justify-center rounded-lg border text-sm text-muted-foreground">
+    <div className="flex min-h-64 flex-[3] items-center justify-center rounded-lg border text-sm text-muted-foreground">
       Loading video…
     </div>
   ),

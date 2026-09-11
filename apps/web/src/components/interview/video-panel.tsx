@@ -9,7 +9,7 @@ import {
   useLocalParticipant,
   useTracks,
 } from "@livekit/components-react";
-import { Track, RoomEvent } from "livekit-client";
+import { Track } from "livekit-client";
 import "@livekit/components-styles";
 
 export interface VideoPanelProps {
@@ -72,7 +72,6 @@ function Tile({ track, label }: { track: TrackRef; label: string }) {
  */
 function VideoStage({ fill }: { fill: boolean }) {
   const tracks = useTracks(TRACK_SOURCES, {
-    updateOnlyOn: [RoomEvent.ActiveSpeakersChanged],
     onlySubscribed: false,
   });
   const { localParticipant } = useLocalParticipant();
@@ -153,7 +152,9 @@ export function VideoPanel({ serverUrl, token, fill = false }: VideoPanelProps) 
   // Filling the room when the editor is hidden, a fixed rail height when it
   // isn't — and the same height in both the joined and not-joined states, so
   // joining doesn't make everything below it jump.
-  const sizeClassName = fill ? "min-h-0 flex-1" : "h-64 shrink-0";
+  const sizeClassName = fill
+    ? "min-h-0 flex-1"
+    : "min-h-64 flex-[3]";
 
   if (!joined) {
     return (

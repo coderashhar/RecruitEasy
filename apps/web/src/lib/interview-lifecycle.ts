@@ -2,6 +2,8 @@ import "server-only";
 
 import { prisma, type Interview, type InterviewStatus } from "@interviewhub/db";
 import type { RescheduleInterviewInput, UpdateInterviewStatusInput } from "@interviewhub/types";
+import { interviewRescheduledEmail } from "./email-templates";
+import { notifyUser } from "./notifications";
 import { findInterviewerConflict } from "./scheduling";
 
 export class LifecycleError extends Error {}
@@ -110,7 +112,7 @@ export async function rescheduleInterview(
     throw new LifecycleError("One or more interviewers are already booked at that time.");
   }
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     // Same reasoning as updateInterviewStatus: pin the status we validated
     // against into the write, so a reschedule can't land on an interview that
     // was cancelled or started between the read and this update.
@@ -137,5 +139,55 @@ export async function rescheduleInterview(
     });
 
     return tx.interview.findUniqueOrThrow({ where: { id: interview.id } });
+  });
+
+  // Fire-and-forget: notify candidate of rescheduled time.
+  notifyInterviewRescheduled(interview.id, input.scheduledAt, input.durationMins).catch(() => {});
+
+  return result;
+}
+
+async function notifyInterviewRescheduled(
+  interviewId: string,
+  scheduledAt: Date,
+  durationMins: number,
+): Promise<void> {
+  const data = await prisma.interview.findUnique({
+    where: { id: interviewId },
+    select: {
+      roomName: true,
+      application: {
+        select: {
+          candidate: { select: { id: true, name: true, email: true } },
+          job: { select: { title: true } },
+        },
+      },
+    },
+  });
+  if (!data) return;
+
+  const { candidate } = data.application;
+  const jobTitle = data.application.job.title;
+  const joinUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/interview/${interviewId}`;
+
+  const emailContent = interviewRescheduledEmail(
+    candidate.name,
+    jobTitle,
+    scheduledAt,
+    durationMins,
+    joinUrl,
+  );
+
+  await notifyUser(candidate.id, {
+    type: "interview.rescheduled",
+    title: emailContent.subject,
+    body: `Your interview for ${jobTitle} has been rescheduled.`,
+    link: `/interview/${interviewId}`,
+    email: {
+      to: candidate.email,
+      subject: emailContent.subject,
+      text: emailContent.text,
+      html: emailContent.html,
+    },
   });
 }

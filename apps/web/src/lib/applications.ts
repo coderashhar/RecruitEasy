@@ -5,6 +5,8 @@ import type {
   CreateApplicationInput,
   UpdateApplicationStatusInput,
 } from "@interviewhub/types";
+import { applicationStatusEmail } from "./email-templates";
+import { notifyUser } from "./notifications";
 
 export class ApplicationError extends Error {}
 
@@ -85,7 +87,7 @@ export async function updateApplicationStatus(
     throw new ApplicationError("Application not found in your organization.");
   }
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     // Pins the status the audit log is about to claim we moved *from*. The
     // read happened outside this transaction, so without it a concurrent
     // change would leave the audit trail recording a transition that never
@@ -112,5 +114,43 @@ export async function updateApplicationStatus(
     });
 
     return tx.application.findUniqueOrThrow({ where: { id: application.id } });
+  });
+
+  // Fire-and-forget: notify candidate of status change. Fetches candidate +
+  // job info outside the transaction — the write already committed, so a
+  // notification failure must not roll anything back.
+  notifyApplicationStatusChange(application.id, input.status).catch(() => {});
+
+  return result;
+}
+
+async function notifyApplicationStatusChange(
+  applicationId: string,
+  status: string,
+): Promise<void> {
+  const app = await prisma.application.findUnique({
+    where: { id: applicationId },
+    select: {
+      candidate: { select: { id: true, name: true, email: true } },
+      job: { select: { title: true } },
+    },
+  });
+  if (!app) return;
+
+  const emailContent = applicationStatusEmail(app.candidate.name, app.job.title, status);
+
+  await notifyUser(app.candidate.id, {
+    type: `application.${status.toLowerCase()}`,
+    title: emailContent?.subject ?? `Application status: ${status}`,
+    body: `Your application for ${app.job.title} has been updated to ${status}.`,
+    link: "/candidate",
+    email: emailContent
+      ? {
+          to: app.candidate.email,
+          subject: emailContent.subject,
+          text: emailContent.text,
+          html: emailContent.html,
+        }
+      : undefined,
   });
 }

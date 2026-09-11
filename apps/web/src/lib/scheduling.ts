@@ -3,6 +3,8 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { prisma, type Interview } from "@interviewhub/db";
 import { INTERVIEWER_CAPABLE_ROLES, type ScheduleInterviewInput } from "@interviewhub/types";
+import { interviewScheduledEmail } from "./email-templates";
+import { notifyUser } from "./notifications";
 
 export class SchedulingError extends Error {}
 
@@ -90,7 +92,7 @@ export async function scheduleInterviewForOrg(
     throw new SchedulingError("One or more interviewers are already booked at that time.");
   }
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const interview = await tx.interview.create({
       data: {
         applicationId: application.id,
@@ -121,5 +123,55 @@ export async function scheduleInterviewForOrg(
     });
 
     return interview;
+  });
+
+  // Fire-and-forget: notify candidate their interview is scheduled.
+  notifyInterviewScheduled(result.id, input.scheduledAt, input.durationMins).catch(() => {});
+
+  return result;
+}
+
+async function notifyInterviewScheduled(
+  interviewId: string,
+  scheduledAt: Date,
+  durationMins: number,
+): Promise<void> {
+  const interview = await prisma.interview.findUnique({
+    where: { id: interviewId },
+    select: {
+      roomName: true,
+      application: {
+        select: {
+          candidate: { select: { id: true, name: true, email: true } },
+          job: { select: { title: true } },
+        },
+      },
+    },
+  });
+  if (!interview) return;
+
+  const { candidate } = interview.application;
+  const jobTitle = interview.application.job.title;
+  const joinUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/interview/${interviewId}`;
+
+  const emailContent = interviewScheduledEmail(
+    candidate.name,
+    jobTitle,
+    scheduledAt,
+    durationMins,
+    joinUrl,
+  );
+
+  await notifyUser(candidate.id, {
+    type: "interview.scheduled",
+    title: emailContent.subject,
+    body: `Your interview for ${jobTitle} is scheduled.`,
+    link: `/interview/${interviewId}`,
+    email: {
+      to: candidate.email,
+      subject: emailContent.subject,
+      text: emailContent.text,
+      html: emailContent.html,
+    },
   });
 }

@@ -21,3 +21,16 @@ export const atsReportSchema = z.object({
   ),
 });
 export type AtsReportPayload = z.infer<typeof atsReportSchema>;
+
+export const polishSuggestionSchema = z.object({
+  section: z.string(),
+  original: z.string(),
+  suggestion: z.string(),
+  reason: z.string(),
+});
+
+export const polishResponseSchema = z.object({
+  suggestions: z.array(polishSuggestionSchema),
+  summary: z.string(),
+});
+export type PolishResponse = z.infer<typeof polishResponseSchema>;

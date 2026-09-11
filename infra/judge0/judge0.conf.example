@@ -8,6 +8,11 @@
 #   openssl rand -hex 32
 
 # --- Required: Judge0 refuses to start without these ---
+# Both default to localhost inside Judge0 itself — wrong for this
+# compose file, where postgres and redis are reachable by service name,
+# not localhost. Must match the service names in docker-compose.yml.
+POSTGRES_HOST=db
+REDIS_HOST=redis
 REDIS_PASSWORD=
 POSTGRES_DB=judge0
 POSTGRES_USER=judge0

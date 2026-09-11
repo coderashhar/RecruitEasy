@@ -107,6 +107,7 @@ model User {
   applicationsAsCandidate Application[]        @relation("CandidateApplications")
   interviewParticipants  InterviewParticipant[]
   feedback               Feedback[]
+  notifications          Notification[]
   auditLogs               AuditLog[]
 
   @@index([orgId])
@@ -306,6 +307,25 @@ model IntegritySignal {
 
   @@index([interviewId])
   @@map("integrity_signals")
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@map("notifications")
 }
 
 // ---------------------------------------------------------------------------

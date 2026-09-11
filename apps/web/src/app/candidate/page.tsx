@@ -111,7 +111,15 @@ export default async function CandidateDashboard() {
 
       <Card className="sm:col-span-2 lg:col-span-3">
         <CardHeader>
-          <CardTitle>Applications</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Applications</CardTitle>
+            <Link
+              href="/jobs"
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              Browse jobs
+            </Link>
+          </div>
           <CardDescription>
             {applications.length === 0 ? "You haven't applied to anything yet." : undefined}
           </CardDescription>

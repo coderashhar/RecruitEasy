@@ -1,5 +1,6 @@
 import { UserButton } from "@clerk/nextjs";
 import type { ReactNode } from "react";
+import { NotificationBell } from "./notification-bell";
 
 export function AppShell({
   title,
@@ -14,6 +15,7 @@ export function AppShell({
         <span className="font-semibold tracking-tight">InterviewHub AI</span>
         <div className="flex items-center gap-4">
           <span className="text-sm text-muted-foreground">{title}</span>
+          <NotificationBell />
           <UserButton />
         </div>
       </header>

@@ -479,24 +479,41 @@ export function InterviewRoom({
           </section>
         )}
 
-        {editorHidden ? (
-          <>
-            {/* The call gets the whole row. Nothing else competes for height
-                here — that competition is exactly what left the video
-                letterboxed in a short band with dead space beneath it. */}
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">{videoBlock}</div>
+        {/* The call keeps this one slot in the tree in both layouts, and only
+            its own classes change between them.
 
-            {sidePanel && (
-              <aside className="flex w-full shrink-0 flex-col gap-3 lg:h-full lg:w-[360px]">
-                {sidePanel === "people" ? participantsBlock : chatBlock}
-              </aside>
-            )}
-          </>
-        ) : (
-          <aside className="flex shrink-0 flex-col gap-3 lg:h-full lg:w-[360px]">
-            {videoBlock}
-            {participantsBlock}
-            {chatBlock}
+            It cannot be moved into a different parent per layout — a rail in
+            one branch, a full-width column in the other. React reconciles a
+            child by its position *and* element type, so swapping the element
+            at this slot unmounts everything under it, VideoPanel included.
+            That tore down the LiveKit connection and dropped both people back
+            to "Join call" every time either of them toggled the editor. */}
+        <div
+          className={
+            editorHidden
+              ? // The call gets the whole row. Nothing else competes for
+                // height here — that competition is exactly what left the
+                // video letterboxed in a short band with dead space beneath.
+                "flex min-h-0 min-w-0 flex-1 flex-col"
+              : "flex shrink-0 flex-col gap-3 lg:h-full lg:w-[360px]"
+          }
+        >
+          {videoBlock}
+          {/* Alongside the editor these share the rail with the call; once the
+              call owns the room they move behind the header toggles. Safe to
+              move, unlike the call: every piece of their state (messages,
+              draft, roster) lives up here, so remounting them costs nothing. */}
+          {!editorHidden && (
+            <>
+              {participantsBlock}
+              {chatBlock}
+            </>
+          )}
+        </div>
+
+        {editorHidden && sidePanel && (
+          <aside className="flex w-full shrink-0 flex-col gap-3 lg:h-full lg:w-[360px]">
+            {sidePanel === "people" ? participantsBlock : chatBlock}
           </aside>
         )}
       </div>

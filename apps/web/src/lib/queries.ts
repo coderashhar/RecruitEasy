@@ -160,6 +160,43 @@ export async function getInterviewDetail(orgId: string, interviewId: string) {
   });
 }
 
+/**
+ * Jobs visible to candidates — everything in the org, most recent first.
+ * Includes application count so the listing can show demand signals.
+ */
+export async function getJobListings(orgId: string) {
+  return prisma.job.findMany({
+    where: { orgId },
+    orderBy: { createdAt: "desc" },
+    include: {
+      _count: { select: { applications: true } },
+    },
+  });
+}
+
+/**
+ * Single job with full description, for the detail / apply page.
+ */
+export async function getJobDetail(orgId: string, jobId: string) {
+  return prisma.job.findFirst({
+    where: { id: jobId, orgId },
+    include: {
+      _count: { select: { applications: true } },
+    },
+  });
+}
+
+/**
+ * Checks whether a candidate has already applied to a specific job.
+ */
+export async function hasApplied(jobId: string, candidateId: string): Promise<boolean> {
+  const existing = await prisma.application.findUnique({
+    where: { jobId_candidateId: { jobId, candidateId } },
+    select: { id: true },
+  });
+  return existing !== null;
+}
+
 /** Users who may be assigned the INTERVIEWER participant role — never a CANDIDATE. */
 export async function getPotentialInterviewers(orgId: string) {
   return prisma.user.findMany({

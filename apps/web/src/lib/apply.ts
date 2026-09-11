@@ -1,6 +1,7 @@
 import "server-only";
 
 import { Prisma, prisma } from "@interviewhub/db";
+import { scoreResume } from "./ats-scoring";
 import { parseResume, ResumeParseError } from "./resume-parser";
 import { uploadFile } from "./storage";
 
@@ -20,10 +21,10 @@ export async function applyToJob(
   jobId: string,
   file: File,
 ): Promise<{ applicationId: string; resumeId: string }> {
-  // Validate job exists in org.
+  // Validate job exists in org — fetch description and skills for ATS scoring.
   const job = await prisma.job.findFirst({
     where: { id: jobId, orgId },
-    select: { id: true },
+    select: { id: true, description: true, requiredSkills: true },
   });
   if (!job) throw new ApplyError("Job not found.");
 
@@ -74,6 +75,13 @@ export async function applyToJob(
 
       return { applicationId: application.id, resumeId: resume.id };
     });
+
+    // Score the resume against the JD after the transaction commits.
+    // Best-effort: scoreResume never throws, so a Gemini failure won't
+    // surface to the candidate or roll back the application.
+    scoreResume(result.resumeId, parsed.text, job.description, job.requiredSkills).catch(
+      (err) => console.error("[apply] ATS scoring failed unexpectedly:", err),
+    );
 
     return result;
   } catch (err) {

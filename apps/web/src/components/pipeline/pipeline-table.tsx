@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/table";
 import type { ApplicationStatus } from "@interviewhub/db";
 import { ApplicationStatusSelect } from "./application-status-select";
+import { ShortlistToggle } from "./shortlist-toggle";
 import { bulkChangeApplicationStatus } from "@/app/recruiter/applications/actions";
 
 export interface PipelineRow {
@@ -22,6 +24,7 @@ export interface PipelineRow {
   jobTitle: string;
   status: ApplicationStatus;
   atsScore: number | null;
+  shortlisted: boolean;
 }
 
 const ALL_STATUSES: ApplicationStatus[] = [
@@ -40,6 +43,7 @@ export function PipelineTable({ rows: initial }: { rows: PipelineRow[] }) {
   const [rows, setRows] = useState(initial);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<ApplicationStatus | "">("");
+  const [shortlistedOnly, setShortlistedOnly] = useState(false);
   const [sortField, setSortField] = useState<SortField>("score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -61,6 +65,10 @@ export function PipelineTable({ rows: initial }: { rows: PipelineRow[] }) {
       result = result.filter((row) => row.status === filterStatus);
     }
 
+    if (shortlistedOnly) {
+      result = result.filter((row) => row.shortlisted);
+    }
+
     result = [...result].sort((a, b) => {
       if (sortField === "name") {
         const cmp = a.candidateName.localeCompare(b.candidateName);
@@ -72,7 +80,13 @@ export function PipelineTable({ rows: initial }: { rows: PipelineRow[] }) {
     });
 
     return result;
-  }, [rows, search, filterStatus, sortField, sortDir]);
+  }, [rows, search, filterStatus, shortlistedOnly, sortField, sortDir]);
+
+  function setRowShortlisted(applicationId: string, shortlisted: boolean) {
+    setRows((prev) =>
+      prev.map((row) => (row.applicationId === applicationId ? { ...row, shortlisted } : row)),
+    );
+  }
 
   function toggleSort(field: SortField) {
     if (sortField === field) {
@@ -146,10 +160,28 @@ export function PipelineTable({ rows: initial }: { rows: PipelineRow[] }) {
             </option>
           ))}
         </select>
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={shortlistedOnly}
+            onChange={(event) => setShortlistedOnly(event.target.checked)}
+          />
+          Shortlisted only
+        </label>
 
         {selected.size > 0 && (
           <div className="flex items-center gap-1.5 ml-auto">
             <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+            {selected.size >= 2 && selected.size <= 4 ? (
+              <Button
+                size="sm"
+                className="h-7 text-xs"
+                nativeButton={false}
+                render={<Link href={`/recruiter/compare?ids=${[...selected].join(",")}`}>Compare</Link>}
+              />
+            ) : (
+              <span className="text-xs text-muted-foreground">Select 2–4 to compare</span>
+            )}
             {ALL_STATUSES.map((s) => (
               <Button
                 key={s}
@@ -181,6 +213,9 @@ export function PipelineTable({ rows: initial }: { rows: PipelineRow[] }) {
                   aria-label="Select all"
                 />
               </TableHead>
+              <TableHead className="w-8">
+                <span className="sr-only">Shortlisted</span>
+              </TableHead>
               <TableHead>
                 <button type="button" onClick={() => toggleSort("name")} className="font-medium">
                   Candidate{sortIndicator("name")}
@@ -206,7 +241,19 @@ export function PipelineTable({ rows: initial }: { rows: PipelineRow[] }) {
                     aria-label={`Select ${row.candidateName}`}
                   />
                 </TableCell>
-                <TableCell className="font-medium">{row.candidateName}</TableCell>
+                <TableCell>
+                  <ShortlistToggle
+                    applicationId={row.applicationId}
+                    candidateName={row.candidateName}
+                    shortlisted={row.shortlisted}
+                    onChange={(next) => setRowShortlisted(row.applicationId, next)}
+                  />
+                </TableCell>
+                <TableCell className="font-medium">
+                  <Link href={`/recruiter/candidates/${row.applicationId}`} className="hover:underline">
+                    {row.candidateName}
+                  </Link>
+                </TableCell>
                 <TableCell>{row.jobTitle}</TableCell>
                 <TableCell>
                   <ApplicationStatusSelect

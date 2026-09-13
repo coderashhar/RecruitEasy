@@ -142,6 +142,9 @@ model Application {
   candidateId String
   candidate   User              @relation("CandidateApplications", fields: [candidateId], references: [id], onDelete: Cascade)
   status      ApplicationStatus @default(APPLIED)
+  // A recruiter's private marker for "worth a closer look", independent of
+  // where the application is in the pipeline. Never shown to the candidate.
+  shortlistedAt DateTime?
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 

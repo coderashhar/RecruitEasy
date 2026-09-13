@@ -21,3 +21,9 @@ export const updateApplicationStatusSchema = z.object({
   status: applicationStatusSchema,
 });
 export type UpdateApplicationStatusInput = z.infer<typeof updateApplicationStatusSchema>;
+
+export const setShortlistedSchema = z.object({
+  applicationId: z.string().min(1),
+  shortlisted: z.boolean(),
+});
+export type SetShortlistedInput = z.infer<typeof setShortlistedSchema>;

@@ -2,14 +2,17 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PipelineTable, type PipelineRow } from "@/components/pipeline/pipeline-table";
+import { getOrgAnalytics } from "@/lib/analytics";
 import { getRecruiterPipeline, getUpcomingInterviews } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
 
 export default async function RecruiterDashboard() {
-  const { user } = await requireCurrentUser(["RECRUITER", "INTERVIEWER", "ADMIN"]);
-  const [jobs, upcomingInterviews] = await Promise.all([
+  const { user, role } = await requireCurrentUser(["RECRUITER", "INTERVIEWER", "ADMIN"]);
+  const canSeeAnalytics = role === "RECRUITER" || role === "ADMIN";
+  const [jobs, upcomingInterviews, analytics] = await Promise.all([
     getRecruiterPipeline(user.orgId),
     getUpcomingInterviews(user.orgId),
+    canSeeAnalytics ? getOrgAnalytics(user.orgId, 30) : null,
   ]);
 
   const pipelineRows: PipelineRow[] = jobs.flatMap((job) =>
@@ -19,6 +22,7 @@ export default async function RecruiterDashboard() {
       jobTitle: job.title,
       status: application.status,
       atsScore: application.resumes[0]?.atsReports[0]?.score ?? null,
+      shortlisted: application.shortlistedAt !== null,
     })),
   );
 
@@ -90,12 +94,40 @@ export default async function RecruiterDashboard() {
           </div>
         )}
       </Card>
-      <Card className="lg:col-span-3">
-        <CardHeader>
-          <CardTitle>Analytics</CardTitle>
-          <CardDescription>Completion rate and trends will show here.</CardDescription>
-        </CardHeader>
-      </Card>
+      {analytics && (
+        <Card className="lg:col-span-3">
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle>Last 30 days</CardTitle>
+              <CardDescription>Interview completion, hires and the open pipeline.</CardDescription>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              nativeButton={false}
+              render={<Link href="/recruiter/analytics">View analytics</Link>}
+            />
+          </CardHeader>
+          <div className="grid gap-3 px-6 pb-6 sm:grid-cols-3">
+            {[
+              {
+                label: "Interview completion",
+                value:
+                  analytics.interviews.completionRate === null
+                    ? "—"
+                    : `${Math.round(analytics.interviews.completionRate * 100)}%`,
+              },
+              { label: "Hires", value: String(analytics.hires) },
+              { label: "Active applications", value: String(analytics.activeApplications) },
+            ].map((stat) => (
+              <div key={stat.label} className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">{stat.label}</div>
+                <div className="text-2xl font-semibold tabular-nums">{stat.value}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

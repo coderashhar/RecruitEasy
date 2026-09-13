@@ -58,7 +58,10 @@ export default async function InterviewDetailPage({
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <div>
             <CardTitle>
-              {interview.application.candidate.name} — {interview.application.job.title}
+              <Link href={`/recruiter/candidates/${interview.applicationId}`} className="hover:underline">
+                {interview.application.candidate.name}
+              </Link>{" "}
+              — {interview.application.job.title}
             </CardTitle>
             <CardDescription>
               Round {interview.round} ·{" "}

@@ -70,3 +70,18 @@ export async function consumeRateLimit({
 export async function releaseRateLimit(hitId: string): Promise<void> {
   await prisma.rateLimitHit.deleteMany({ where: { id: hitId } });
 }
+
+/**
+ * How many uses of `key` are left in the window, without consuming one — for
+ * showing a count before the first attempt. Advisory only: consumeRateLimit
+ * is what enforces the limit.
+ */
+export async function rateLimitRemaining({ key, limit, windowMs }: ConsumeRateLimitInput): Promise<number> {
+  const used = await prisma.rateLimitHit.count({
+    where: {
+      key,
+      ...(windowMs !== undefined && { createdAt: { gte: new Date(Date.now() - windowMs) } }),
+    },
+  });
+  return Math.max(0, limit - used);
+}

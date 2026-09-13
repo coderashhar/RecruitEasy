@@ -39,6 +39,14 @@ export default async function RecruiterDashboard() {
             </CardDescription>
           </div>
           <div className="flex gap-2">
+            {role === "ADMIN" && (
+              <Button
+                size="sm"
+                variant="outline"
+                nativeButton={false}
+                render={<Link href="/admin/audit">Admin</Link>}
+              />
+            )}
             <Button
               size="sm"
               variant="outline"

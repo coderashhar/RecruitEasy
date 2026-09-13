@@ -156,5 +156,23 @@ in-memory `Y.Doc` state per interview room — see ADR-002 in the plan.
   curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/reminders
   ```
 
+## Security and privacy
+
+- **In transit:** TLS everywhere. Vercel serves the web app over HTTPS, Caddy terminates TLS for
+  the realtime service, and Neon, R2, LiveKit, Clerk and Resend are reached only over HTTPS/TLS.
+- **At rest:** Neon encrypts databases and backups at rest (AES-256), and Cloudflare R2 encrypts
+  every stored object (resumes, recordings) at rest. There is no separate application-level
+  encryption.
+- **Access:** role checks in middleware *and* in each page and Server Action; every query is
+  scoped to the caller's organisation. Resumes are served through an org-checked route; recordings
+  through 15-minute signed links.
+- **Audit:** pipeline, scheduling, recording and privacy actions write `AuditLog` rows, readable by
+  admins at `/admin/audit`.
+- **Candidate deletion:** candidates request it from their dashboard; an admin approves it at
+  `/admin/deletion-requests`, which deletes their database rows, their R2 files and their Clerk
+  account.
+- **Retention:** set `RECORDING_RETENTION_DAYS` to delete recordings that many days after they
+  finish. The `cron` service calls `/api/cron/retention` alongside reminders.
+
 Full reasoning for these choices — including why LiveKit Cloud over self-hosting, and why R2 over
 S3 — is in the architecture plan.

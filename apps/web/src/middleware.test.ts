@@ -93,4 +93,15 @@ describe("middleware", () => {
     const res = await middleware(fakeAuth("u1", "CANDIDATE"), reqFor("/candidate"));
     expect(res).toBeUndefined();
   });
+
+  test("only ADMIN reaches /admin; everyone else goes to their own dashboard", async () => {
+    for (const role of ["RECRUITER", "INTERVIEWER"]) {
+      const res = await middleware(fakeAuth("u1", role), reqFor("/admin/audit"));
+      expect(locationOf(res)).toBe("http://localhost:3000/recruiter");
+    }
+    expect(locationOf(await middleware(fakeAuth("u1", "CANDIDATE"), reqFor("/admin")))).toBe(
+      "http://localhost:3000/candidate",
+    );
+    expect(await middleware(fakeAuth("u1", "ADMIN"), reqFor("/admin/audit"))).toBeUndefined();
+  });
 });

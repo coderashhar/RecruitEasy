@@ -59,6 +59,9 @@ enum RecordingStatus {
   PROCESSING
   READY
   FAILED
+  // The file was deleted under the retention policy; the row remains so the
+  // interview page can say so rather than "not recorded".
+  EXPIRED
 }
 
 enum FeedbackRecommendation {
@@ -88,6 +91,7 @@ model Organization {
   users     User[]
   jobs      Job[]
   auditLogs AuditLog[]
+  dataDeletionRequests DataDeletionRequest[]
 
   @@map("organizations")
 }
@@ -110,6 +114,8 @@ model User {
   notifications          Notification[]
   auditLogs               AuditLog[]
   chatMessages           ChatMessage[]
+  dataDeletionRequests      DataDeletionRequest[] @relation("DeletionRequestedBy")
+  processedDeletionRequests DataDeletionRequest[] @relation("DeletionProcessedBy")
 
   @@index([orgId])
   @@map("users")
@@ -402,4 +408,37 @@ model RateLimitHit {
 
   @@index([key, createdAt])
   @@map("rate_limit_hits")
+}
+
+// ---------------------------------------------------------------------------
+// Privacy
+// ---------------------------------------------------------------------------
+
+enum DataDeletionStatus {
+  PENDING
+  COMPLETED
+  REJECTED
+}
+
+// A candidate's request to have their data removed (PRD §9: candidates can
+// request deletion). Completing one deletes the candidate's user row, so
+// `userId` becomes null: the record that a deletion happened must not keep
+// the person it deleted.
+model DataDeletionRequest {
+  id            String             @id @default(cuid())
+  orgId         String
+  org           Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?              @relation("DeletionRequestedBy", fields: [userId], references: [id], onDelete: SetNull)
+  status        DataDeletionStatus @default(PENDING)
+  // Why an admin rejected it; shown to the candidate.
+  reason        String?
+  requestedAt   DateTime           @default(now())
+  processedAt   DateTime?
+  processedById String?
+  processedBy   User?              @relation("DeletionProcessedBy", fields: [processedById], references: [id], onDelete: SetNull)
+
+  @@index([orgId, status])
+  @@index([userId])
+  @@map("data_deletion_requests")
 }

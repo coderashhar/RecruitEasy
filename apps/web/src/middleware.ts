@@ -15,6 +15,7 @@ const isPublicRoute = createRouteMatcher([
 
 const isRecruiterRoute = createRouteMatcher(["/recruiter(.*)"]);
 const isCandidateRoute = createRouteMatcher(["/candidate(.*)"]);
+const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
 
 export default clerkMiddleware(async (auth, req) => {
   if (isPublicRoute(req)) return;
@@ -34,6 +35,10 @@ export default clerkMiddleware(async (auth, req) => {
   }
 
   if (isRecruiterRoute(req) && !(role === "RECRUITER" || role === "INTERVIEWER" || role === "ADMIN")) {
+    return NextResponse.redirect(new URL(DASHBOARD_PATH[role], req.url));
+  }
+
+  if (isAdminRoute(req) && role !== "ADMIN") {
     return NextResponse.redirect(new URL(DASHBOARD_PATH[role], req.url));
   }
 

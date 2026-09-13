@@ -1,17 +1,24 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
 
 const findFirstApplication = vi.fn();
-const countAuditLog = vi.fn();
 const createAuditLog = vi.fn();
+const consumeRateLimit = vi.fn();
+const releaseRateLimit = vi.fn();
 
 vi.mock("@interviewhub/db", () => ({
   prisma: {
     application: { findFirst: (...args: unknown[]) => findFirstApplication(...args) },
-    auditLog: {
-      count: (...args: unknown[]) => countAuditLog(...args),
-      create: (...args: unknown[]) => createAuditLog(...args),
-    },
+    auditLog: { create: (...args: unknown[]) => createAuditLog(...args) },
   },
+}));
+
+// The limiter's own atomicity is covered in rate-limit.test.ts; here it only
+// matters what polishResume asks of it and when.
+class FakeRateLimitError extends Error {}
+vi.mock("./rate-limit", () => ({
+  RateLimitError: FakeRateLimitError,
+  consumeRateLimit: (...args: unknown[]) => consumeRateLimit(...args),
+  releaseRateLimit: (...args: unknown[]) => releaseRateLimit(...args),
 }));
 
 const generateContent = vi.fn();
@@ -35,6 +42,7 @@ const CANDIDATE_ID = "candidate_1";
 const APPLICATION_DATA = {
   id: APP_ID,
   job: {
+    orgId: "org_1",
     title: "Software Engineer",
     description: "Build web apps",
     requiredSkills: ["React", "TypeScript"],
@@ -51,13 +59,15 @@ const APPLICATION_DATA = {
 
 beforeEach(() => {
   findFirstApplication.mockReset();
-  countAuditLog.mockReset();
   createAuditLog.mockReset();
+  consumeRateLimit.mockReset();
+  releaseRateLimit.mockReset();
   generateContent.mockReset();
 
   findFirstApplication.mockResolvedValue(APPLICATION_DATA);
-  countAuditLog.mockResolvedValue(0);
   createAuditLog.mockResolvedValue({});
+  consumeRateLimit.mockResolvedValue({ hitId: "hit_1", remaining: 2 });
+  releaseRateLimit.mockResolvedValue(undefined);
 });
 
 describe("polishResume", () => {
@@ -81,10 +91,11 @@ describe("polishResume", () => {
     await expect(polishResume(APP_ID, CANDIDATE_ID)).rejects.toThrow(/parsed resume/i);
   });
 
-  test("rate limit exceeded -> rejected after 3 attempts", async () => {
-    countAuditLog.mockResolvedValue(3);
+  test("rate limit exceeded -> rejected without calling Gemini", async () => {
+    consumeRateLimit.mockRejectedValue(new FakeRateLimitError("limit"));
 
     await expect(polishResume(APP_ID, CANDIDATE_ID)).rejects.toThrow(/all 3 polish attempts/i);
+    expect(consumeRateLimit).toHaveBeenCalledWith({ key: `polish:${APP_ID}`, limit: 3 });
     expect(generateContent).not.toHaveBeenCalled();
   });
 
@@ -110,34 +121,31 @@ describe("polishResume", () => {
     expect(result.suggestions).toHaveLength(1);
     expect(result.suggestions[0].section).toBe("Summary");
     expect(result.summary).toContain("quantified");
+    expect(releaseRateLimit).not.toHaveBeenCalled();
+    // The regression: this used to write orgId "system", which is no
+    // organization at all, so the insert failed and was silently swallowed.
     expect(createAuditLog).toHaveBeenCalledWith({
-      data: expect.objectContaining({
+      data: {
+        orgId: "org_1",
         action: "resume.polished",
         target: APP_ID,
         actorId: CANDIDATE_ID,
-      }),
+      },
     });
   });
 
-  test("second attempt increments count check", async () => {
-    countAuditLog.mockResolvedValue(2);
+  test("Gemini failure hands the attempt back", async () => {
+    generateContent.mockRejectedValue(new Error("503 from Gemini"));
 
-    generateContent.mockResolvedValue({
-      response: {
-        text: () =>
-          JSON.stringify({
-            suggestions: [],
-            summary: "Already well-polished.",
-          }),
-      },
-    });
+    await expect(polishResume(APP_ID, CANDIDATE_ID)).rejects.toThrow(/503/);
+    expect(releaseRateLimit).toHaveBeenCalledWith("hit_1");
+    expect(createAuditLog).not.toHaveBeenCalled();
+  });
 
-    await polishResume(APP_ID, CANDIDATE_ID);
+  test("malformed Gemini output hands the attempt back", async () => {
+    generateContent.mockResolvedValue({ response: { text: () => "not json" } });
 
-    expect(countAuditLog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { action: "resume.polished", target: APP_ID },
-      }),
-    );
+    await expect(polishResume(APP_ID, CANDIDATE_ID)).rejects.toThrow();
+    expect(releaseRateLimit).toHaveBeenCalledWith("hit_1");
   });
 });

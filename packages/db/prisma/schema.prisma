@@ -281,15 +281,22 @@ model Execution {
   @@map("executions")
 }
 
+// One recording per interview, made by LiveKit Egress and uploaded to R2.
+// status: PENDING while recording, PROCESSING once stopped and LiveKit is
+// finishing the file, READY when the file is in R2, FAILED otherwise (with
+// the reason in `error`). See lib/recording.ts.
 model Recording {
   id          String          @id @default(cuid())
   interviewId String          @unique
   interview   Interview       @relation(fields: [interviewId], references: [id], onDelete: Cascade)
-  egressId    String
+  // Unique: LiveKit's webhook identifies the recording only by this.
+  egressId    String          @unique
   fileKey     String?
   durationSec Int?
   status      RecordingStatus @default(PENDING)
+  error       String?
   createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @default(now()) @updatedAt
 
   @@map("recordings")
 }

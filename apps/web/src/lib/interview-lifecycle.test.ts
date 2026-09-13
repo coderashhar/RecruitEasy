@@ -26,6 +26,11 @@ vi.mock("@interviewhub/db", () => ({
 }));
 
 const sendInterviewInvites = vi.fn();
+const stopActiveRecording = vi.fn();
+vi.mock("./recording", () => ({
+  stopActiveRecording: (...args: unknown[]) => stopActiveRecording(...args),
+}));
+
 vi.mock("./interview-notices", () => ({
   sendInterviewInvites: (...args: unknown[]) => sendInterviewInvites(...args),
 }));
@@ -64,6 +69,7 @@ beforeEach(() => {
   findInterviewerConflict.mockResolvedValue(false);
   findManyParticipant.mockResolvedValue([{ userId: "user_interviewer" }]);
   sendInterviewInvites.mockReset();
+  stopActiveRecording.mockReset().mockResolvedValue(false);
 });
 
 describe("updateInterviewStatus", () => {

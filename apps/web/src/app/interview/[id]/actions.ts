@@ -3,6 +3,7 @@
 import { executeRequestSchema } from "@interviewhub/types";
 import { ExecutionError, getExecutionForParticipant, submitExecution } from "@/lib/execution";
 import { authorizeInterviewAccess } from "@/lib/interview-access";
+import { RecordingError, startRecording, stopRecording } from "@/lib/recording";
 import { interviewTokenLifetimeSeconds, mintInterviewToken } from "@/lib/interview-token";
 import { ROLES } from "@/lib/roles";
 import { getCurrentUser, requireCurrentUser } from "@/lib/users";
@@ -76,4 +77,27 @@ export async function refreshInterviewToken(interviewId: string): Promise<string
     role: access.participantRole,
     expiresInSeconds: interviewTokenLifetimeSeconds(access.interview.durationMins),
   });
+}
+
+/**
+ * Start or stop recording. Returns an error message instead of throwing: a
+ * refused recording (quota used up, no call yet) is an expected outcome the
+ * interviewer should read, not a crash.
+ */
+export async function setRecording(
+  interviewId: string,
+  action: "start" | "stop",
+): Promise<{ error?: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "You're signed out. Reload the page." };
+
+  try {
+    if (action === "start") await startRecording(user.id, interviewId);
+    else await stopRecording(user.id, interviewId);
+    return {};
+  } catch (err) {
+    if (err instanceof RecordingError) return { error: err.message };
+    console.error("[recording] action failed", err);
+    return { error: "Something went wrong with the recording. Try again." };
+  }
 }

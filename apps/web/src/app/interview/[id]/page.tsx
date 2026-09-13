@@ -3,6 +3,7 @@ import { InterviewRoom } from "@/components/interview/interview-room";
 import { authorizeInterviewAccess } from "@/lib/interview-access";
 import { interviewTokenLifetimeSeconds, mintInterviewToken } from "@/lib/interview-token";
 import { isLiveKitConfigured, mintVideoToken } from "@/lib/livekit-token";
+import { getRoomRecordingState, isRecordingConfigured } from "@/lib/recording";
 import { ROLES } from "@/lib/roles";
 import { requireCurrentUser } from "@/lib/users";
 
@@ -64,6 +65,8 @@ export default async function InterviewPage({
         status={access.interview.status}
         videoToken={videoToken}
         videoServerUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL ?? null}
+        recordingAvailable={videoToken !== null && isRecordingConfigured()}
+        initialRecordingState={await getRoomRecordingState(access.interview.id)}
       />
     </div>
   );

@@ -21,6 +21,7 @@ import {
   type ChatMessageEvent,
   type ExecutionResult,
   type IntegritySignalEvent,
+  type RecordingRoomState,
   type SupportedLanguage,
 } from "@interviewhub/types";
 import { INTEGRITY_DISCLOSURE, describeIntegritySignal } from "@/lib/integrity";
@@ -29,6 +30,7 @@ import {
   getExecutionResult,
   refreshInterviewToken,
   runCode,
+  setRecording,
 } from "@/app/interview/[id]/actions";
 import { SocketYjsProvider, type ConnectionStatus } from "./socket-yjs-provider";
 
@@ -71,6 +73,9 @@ export interface InterviewRoomProps {
   /** Null when LiveKit isn't configured — the room then runs without video. */
   videoToken: string | null;
   videoServerUrl: string | null;
+  /** True when video is on and LiveKit + R2 are configured for recording. */
+  recordingAvailable: boolean;
+  initialRecordingState: RecordingRoomState;
 }
 
 /**
@@ -106,7 +111,11 @@ export function InterviewRoom({
   status,
   videoToken,
   videoServerUrl,
+  recordingAvailable,
+  initialRecordingState,
 }: InterviewRoomProps) {
+  const [recordingState, setRecordingState] = useState<RecordingRoomState>(initialRecordingState);
+  const [recordingBusy, startRecordingTransition] = useTransition();
   const [provider, setProvider] = useState<SocketYjsProvider | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>("connecting");
   const [connectedIds, setConnectedIds] = useState<string[]>([]);
@@ -241,6 +250,16 @@ export function InterviewRoom({
     nextProvider.socket.on("chat:history", handleChatHistory);
     nextProvider.socket.on("execution:result", handleExecutionResult);
 
+    // Everyone in the room follows the recording state — that is what keeps
+    // the REC badge honest for the candidate, not just the interviewer's view.
+    nextProvider.socket.on(
+      "recording:state",
+      ({ state, message }: { state: RecordingRoomState; message?: string }) => {
+        setRecordingState(state);
+        if (state === "failed" && message) toast.error(message);
+      },
+    );
+
     // Interviewers and observers see the candidate's signals as they happen,
     // as a passing note rather than an alert — they are context, not verdicts.
     const handleIntegritySignal = ({ userId, type, payload }: IntegritySignalEvent) => {
@@ -310,6 +329,20 @@ export function InterviewRoom({
         toast.error("Your browser didn't allow full screen.");
       });
     }
+  }
+
+  function handleRecordingToggle() {
+    const action = recordingState === "recording" ? "stop" : "start";
+    startRecordingTransition(async () => {
+      const result = await setRecording(interviewId, action);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      // The broadcast updates everyone, this client included; setting it here
+      // too keeps the button right if the realtime service is unreachable.
+      setRecordingState(action === "start" ? "recording" : "processing");
+    });
   }
 
   function sendMessage(event: FormEvent) {
@@ -443,6 +476,25 @@ export function InterviewRoom({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Badge variant="outline">{status}</Badge>
+          {recordingState === "recording" && (
+            <Badge variant="destructive" aria-live="polite">
+              <span aria-hidden="true" className="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-current motion-reduce:animate-none" />
+              Recording
+            </Badge>
+          )}
+          {recordingState === "processing" && <Badge variant="outline">Saving recording…</Badge>}
+          {role === "INTERVIEWER" &&
+            recordingAvailable &&
+            (recordingState === "idle" || recordingState === "failed" || recordingState === "recording") && (
+              <Button
+                size="sm"
+                variant={recordingState === "recording" ? "destructive" : "outline"}
+                disabled={recordingBusy}
+                onClick={handleRecordingToggle}
+              >
+                {recordingState === "recording" ? "Stop recording" : "Record"}
+              </Button>
+            )}
           <Badge
             variant={
               connectionCopy.tone === "ok"

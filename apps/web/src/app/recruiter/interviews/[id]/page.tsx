@@ -8,6 +8,7 @@ import { InterviewStatusActions } from "@/components/interview/interview-status-
 import { RUBRIC_CRITERIA } from "@interviewhub/types";
 import { describeIntegritySignal } from "@/lib/integrity";
 import { getInterviewDetail } from "@/lib/queries";
+import { getRecordingForReview } from "@/lib/recording";
 import { requireCurrentUser } from "@/lib/users";
 import { FeedbackForm } from "./feedback-form";
 import { RescheduleForm } from "./reschedule-form";
@@ -36,7 +37,10 @@ export default async function InterviewDetailPage({
   const { id } = await params;
   const { user, role } = await requireCurrentUser(["RECRUITER", "INTERVIEWER", "ADMIN"]);
 
-  const interview = await getInterviewDetail(user.orgId, id);
+  const [interview, recording] = await Promise.all([
+    getInterviewDetail(user.orgId, id),
+    getRecordingForReview(user.orgId, id),
+  ]);
   if (!interview) notFound();
 
   // INTERVIEWER can view this page (they may need to review it) but doesn't
@@ -114,6 +118,29 @@ export default async function InterviewDetailPage({
             </div>
           ))}
         </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recording</CardTitle>
+          <CardDescription>
+            {!recording
+              ? "Not recorded. The interviewer can start a recording from the room."
+              : recording.status === "READY"
+                ? `${recording.durationSec ? `${Math.floor(recording.durationSec / 60)} min ${recording.durationSec % 60} s. ` : ""}${recording.error ?? ""}`
+                : recording.status === "FAILED"
+                  ? `Recording failed: ${recording.error ?? "no reason given."}`
+                  : recording.status === "PROCESSING"
+                    ? "Recording stopped — LiveKit is still saving the file. Reload in a minute."
+                    : "Recording in progress."}
+          </CardDescription>
+        </CardHeader>
+        {recording?.playbackUrl && (
+          <CardContent>
+            {/* The link expires after 15 minutes; reloading the page issues a new one. */}
+            <video controls preload="metadata" src={recording.playbackUrl} className="w-full rounded-md bg-black" />
+          </CardContent>
+        )}
       </Card>
 
       <Card>

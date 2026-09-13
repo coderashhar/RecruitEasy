@@ -4,6 +4,7 @@ import { after } from "next/server";
 import { prisma, type Interview, type InterviewStatus } from "@interviewhub/db";
 import type { RescheduleInterviewInput, UpdateInterviewStatusInput } from "@interviewhub/types";
 import { sendInterviewInvites } from "./interview-notices";
+import { stopActiveRecording } from "./recording";
 import { findInterviewerConflict } from "./scheduling";
 
 export class LifecycleError extends Error {}
@@ -83,6 +84,14 @@ export async function updateInterviewStatus(
   // candidate was never told.
   if (input.status === "CANCELLED") {
     after(() => sendInterviewInvites(interview.id, "cancelled"));
+  }
+
+  // A recording left running after the interview is closed out would keep
+  // spending the month's free LiveKit minutes on an empty room.
+  if (input.status === "COMPLETED" || input.status === "CANCELLED" || input.status === "NO_SHOW") {
+    after(() => stopActiveRecording(interview.id, null).then(() => undefined, (err) => {
+      console.error(`[lifecycle] couldn't stop recording for interview ${interview.id}`, err);
+    }));
   }
 
   return result;

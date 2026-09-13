@@ -142,6 +142,11 @@ in-memory `Y.Doc` state per interview room — see ADR-002 in the plan.
 - **`apps/realtime` (+ [`infra/judge0`](infra/judge0)) → one small VPS**, reverse-proxied by
   [`infra/caddy`](infra/caddy). `apps/realtime/Dockerfile` builds the service; bring it up with
   `infra/caddy/docker-compose.yml`.
+- **Recording (optional).** Needs LiveKit and R2 both configured. In LiveKit Cloud → Settings →
+  Webhooks, add `<app origin>/api/livekit/webhook` signed with the same API key as
+  `LIVEKIT_API_KEY`; without it, recordings stay at "saving" forever. Locally, expose `:3000`
+  with a tunnel (e.g. `ngrok http 3000`) and use that URL. The free Build plan allows about one
+  recorded hour a month and two recordings at once — past that LiveKit refuses, and the room says so.
 - **Reminders.** That compose file also runs a `cron` service, which calls the web app's
   `/api/cron/reminders` every 10 minutes (Vercel Hobby cron runs only once a day). Set `APP_URL`
   and `CRON_SECRET` next to it, with `CRON_SECRET` identical to the one on Vercel. To trigger a

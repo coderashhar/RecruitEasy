@@ -9,6 +9,8 @@ const isPublicRoute = createRouteMatcher([
   // Called by a scheduler, which has no Clerk session. Each route checks
   // CRON_SECRET itself (lib/cron-auth.ts) and refuses everything without it.
   "/api/cron(.*)",
+  // Called by LiveKit's servers; the route verifies LiveKit's signature.
+  "/api/livekit/webhook",
 ]);
 
 const isRecruiterRoute = createRouteMatcher(["/recruiter(.*)"]);

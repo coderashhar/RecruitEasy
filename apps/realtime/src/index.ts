@@ -4,7 +4,7 @@ import { Server, type Socket } from "socket.io";
 import {
   chatMessageSchema,
   integritySignalSchema,
-  executionBroadcastSchema,
+  internalBroadcastSchema,
   type ChatMessageEvent,
   type IntegritySignalEvent,
 } from "@interviewhub/types";
@@ -57,9 +57,10 @@ function isValidInternalSecret(header: string | string[] | undefined): boolean {
 }
 
 const httpServer = createServer(async (req, res) => {
-  // Minimal server-to-server hook: the web app's execute route calls this
-  // after persisting an Execution, so every socket in the room learns about
-  // it without the web app holding a socket connection of its own (ADR-004).
+  // Minimal server-to-server hook: the web app calls this after persisting an
+  // Execution or changing a recording, so every socket in the room learns
+  // about it without the web app holding a socket connection of its own
+  // (ADR-004).
   if (req.method === "POST" && req.url === "/internal/broadcast") {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
@@ -69,8 +70,12 @@ const httpServer = createServer(async (req, res) => {
         res.writeHead(401).end();
         return;
       }
-      const body = executionBroadcastSchema.parse(JSON.parse(Buffer.concat(chunks).toString()));
-      io.to(body.interviewId).emit("execution:result", { executionId: body.executionId });
+      const body = internalBroadcastSchema.parse(JSON.parse(Buffer.concat(chunks).toString()));
+      if (body.type === "recording") {
+        io.to(body.interviewId).emit("recording:state", { state: body.state, message: body.message });
+      } else {
+        io.to(body.interviewId).emit("execution:result", { executionId: body.executionId });
+      }
       res.writeHead(204).end();
     } catch {
       res.writeHead(400).end();

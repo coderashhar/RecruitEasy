@@ -42,6 +42,25 @@ export interface IntegritySignalEvent {
 }
 
 export const executionBroadcastSchema = z.object({
+  // Optional so a web deploy that predates recording (sending no `type`)
+  // still reaches a newer realtime service: the two deploy separately.
+  type: z.literal("execution").optional(),
   interviewId: z.string().min(1),
   executionId: z.string().min(1),
 });
+
+/** What the room shows about recording: the REC badge and the interviewer's button. */
+export const recordingRoomStateSchema = z.enum(["idle", "recording", "processing", "ready", "failed"]);
+export type RecordingRoomState = z.infer<typeof recordingRoomStateSchema>;
+
+export const recordingBroadcastSchema = z.object({
+  type: z.literal("recording"),
+  interviewId: z.string().min(1),
+  state: recordingRoomStateSchema,
+  /** Shown to the interviewer when state is "failed". */
+  message: z.string().max(500).optional(),
+});
+
+/** Body of apps/realtime's POST /internal/broadcast. */
+export const internalBroadcastSchema = z.union([recordingBroadcastSchema, executionBroadcastSchema]);
+export type InternalBroadcast = z.infer<typeof internalBroadcastSchema>;

@@ -1,6 +1,7 @@
 import "server-only";
 
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const r2 =
   process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY
@@ -15,6 +16,22 @@ const r2 =
     : null;
 
 const BUCKET = process.env.R2_BUCKET ?? "interviewhub";
+
+export function isStorageConfigured(): boolean {
+  return r2 !== null;
+}
+
+/** What LiveKit Egress needs to upload straight into the same bucket. */
+export function r2UploadTarget() {
+  if (!r2) return null;
+  return {
+    accessKey: process.env.R2_ACCESS_KEY_ID!,
+    secret: process.env.R2_SECRET_ACCESS_KEY!,
+    endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    region: "auto",
+    bucket: BUCKET,
+  };
+}
 
 export class StorageError extends Error {}
 
@@ -66,5 +83,30 @@ export async function downloadFile(
   } catch (err) {
     console.error("[storage] Download failed:", err);
     return null;
+  }
+}
+
+/**
+ * A time-limited GET link, for files too large to stream through a server
+ * function (a recording is hundreds of megabytes; Vercel caps a response at a
+ * few). Authorize before calling: anyone holding the link can use it until
+ * it expires, so keep `expiresInSeconds` short.
+ */
+export async function getSignedDownloadUrl(key: string, expiresInSeconds: number): Promise<string | null> {
+  if (!r2) return null;
+  return getSignedUrl(r2, new GetObjectCommand({ Bucket: BUCKET, Key: key }), {
+    expiresIn: expiresInSeconds,
+  });
+}
+
+/** Deletes a stored file. Returns false (and logs) on failure instead of throwing. */
+export async function deleteFile(key: string): Promise<boolean> {
+  if (!r2) return false;
+  try {
+    await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+    return true;
+  } catch (err) {
+    console.error("[storage] Delete failed:", err);
+    return false;
   }
 }

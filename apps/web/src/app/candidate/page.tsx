@@ -116,6 +116,12 @@ export default async function CandidateDashboard() {
             <CardTitle>Applications</CardTitle>
             <div className="flex items-center gap-3">
               <Link
+                href="/candidate/practice"
+                className="text-sm font-medium text-primary hover:underline"
+              >
+                Practice coding
+              </Link>
+              <Link
                 href="/candidate/notifications"
                 className="text-sm font-medium text-primary hover:underline"
               >

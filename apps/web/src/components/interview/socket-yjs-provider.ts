@@ -30,6 +30,12 @@ export interface SocketYjsProviderOptions {
    */
   identity: { userId: string; name: string };
   onStatus?: (status: ConnectionStatus) => void;
+  /**
+   * Asked for a new join token when the server rejects the current one.
+   * Resolve null when none can be had (signed out, no longer a participant);
+   * the provider then reports "unauthorized" and stops.
+   */
+  refreshToken?: () => Promise<string | null>;
 }
 
 /**
@@ -64,7 +70,7 @@ export class SocketYjsProvider {
   readonly socket: Socket;
   private destroyed = false;
 
-  constructor({ url, token, identity, onStatus }: SocketYjsProviderOptions) {
+  constructor({ url, token, identity, onStatus, refreshToken }: SocketYjsProviderOptions) {
     this.doc = new Y.Doc();
     this.awareness = new Awareness(this.doc);
     this.socket = io(url, {
@@ -78,17 +84,49 @@ export class SocketYjsProvider {
       color: colorForUser(identity.userId),
     });
 
-    // A join token is minted for the interview's duration plus a grace period
-    // and there is deliberately no refresh endpoint, so a rejected handshake
-    // on a long interview means the token aged out — worth telling the user
-    // apart from an ordinary network drop, since only one of the two is
-    // fixed by reloading.
+    // A rejected handshake means the token aged out (a long interview, a
+    // laptop that slept), not a network problem — and Socket.IO does not
+    // retry a handshake the server's middleware refused. So the provider asks
+    // for a new token once and reconnects with it itself.
+    //
+    // Once per successful connection, not on every rejection: if a freshly
+    // minted token is refused too (say, REALTIME_JWT_SECRET differs between
+    // web and realtime), retrying would loop forever. That case, and a
+    // refresh that returns nothing, is reported as "unauthorized" — told
+    // apart from a network drop, since only one of the two is fixed by
+    // reloading.
+    let refreshedSinceConnect = false;
+
     onStatus?.("connecting");
-    this.socket.on("connect", () => onStatus?.("connected"));
+    this.socket.on("connect", () => {
+      refreshedSinceConnect = false;
+      onStatus?.("connected");
+    });
     this.socket.on("disconnect", () => onStatus?.("disconnected"));
     this.socket.io.on("reconnect_attempt", () => onStatus?.("reconnecting"));
     this.socket.on("connect_error", (err: Error) => {
-      onStatus?.(err.message === "unauthorized" ? "unauthorized" : "reconnecting");
+      if (err.message !== "unauthorized") {
+        onStatus?.("reconnecting");
+        return;
+      }
+      if (!refreshToken || refreshedSinceConnect) {
+        onStatus?.("unauthorized");
+        return;
+      }
+
+      refreshedSinceConnect = true;
+      onStatus?.("reconnecting");
+      refreshToken()
+        .catch(() => null)
+        .then((fresh) => {
+          if (this.destroyed) return;
+          if (!fresh) {
+            onStatus?.("unauthorized");
+            return;
+          }
+          this.socket.auth = { token: fresh };
+          this.socket.connect();
+        });
     });
 
     this.doc.on("update", this.handleLocalDocUpdate);

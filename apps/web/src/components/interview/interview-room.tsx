@@ -1,7 +1,15 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type FormEvent,
+} from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,11 +18,18 @@ import type { InterviewParticipantRole, InterviewStatus } from "@interviewhub/db
 import {
   DEFAULT_LANGUAGE,
   supportedLanguageSchema,
+  type ChatMessageEvent,
   type ExecutionResult,
+  type IntegritySignalEvent,
   type SupportedLanguage,
 } from "@interviewhub/types";
+import { INTEGRITY_DISCLOSURE, describeIntegritySignal } from "@/lib/integrity";
 import type { RosterEntry } from "@/lib/interview-access";
-import { getExecutionResult, runCode } from "@/app/interview/[id]/actions";
+import {
+  getExecutionResult,
+  refreshInterviewToken,
+  runCode,
+} from "@/app/interview/[id]/actions";
 import { SocketYjsProvider, type ConnectionStatus } from "./socket-yjs-provider";
 
 // Monaco measures the DOM and touches `window` on load, so it cannot be
@@ -58,10 +73,16 @@ export interface InterviewRoomProps {
   videoServerUrl: string | null;
 }
 
-interface ChatMessage {
-  userId: string;
-  body: string;
-  at: number;
+/**
+ * Union of two message lists by id, in send order. A live chat:message and
+ * the chat:history replay sent on (re)connect can overlap in either order —
+ * a message can land just before the replay that also contains it, or the
+ * replay can arrive first — so neither may simply replace or append.
+ */
+function mergeMessages(current: ChatMessageEvent[], incoming: ChatMessageEvent[]) {
+  const byId = new Map(current.map((message) => [message.id, message]));
+  for (const message of incoming) byId.set(message.id, message);
+  return [...byId.values()].sort((a, b) => a.at - b.at);
 }
 
 const STATUS_COPY: Record<ConnectionStatus, { label: string; tone: "ok" | "warn" | "bad" }> = {
@@ -89,8 +110,14 @@ export function InterviewRoom({
   const [provider, setProvider] = useState<SocketYjsProvider | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>("connecting");
   const [connectedIds, setConnectedIds] = useState<string[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessageEvent[]>([]);
   const [draft, setDraft] = useState("");
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Keeps the newest message in view, including the replay on join.
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ block: "end" });
+  }, [messages]);
 
   // Presence and chat arrive from the realtime service carrying only a
   // userId; the roster is what turns those into names.
@@ -98,6 +125,14 @@ export function InterviewRoom({
     (userId: string) => roster.find((entry) => entry.userId === userId)?.name ?? "Unknown",
     [roster],
   );
+
+  // Read through a ref inside the socket effect: depending on nameFor there
+  // would tear down and rebuild the connection whenever the roster prop's
+  // identity changed, dropping the editor and chat for a re-render.
+  const nameForRef = useRef(nameFor);
+  useEffect(() => {
+    nameForRef.current = nameFor;
+  }, [nameFor]);
 
   const me = useMemo(
     () => roster.find((entry) => entry.userId === currentUserId),
@@ -162,6 +197,7 @@ export function InterviewRoom({
       token,
       identity: { userId: currentUserId, name: me?.name ?? "Unknown" },
       onStatus: setConnection,
+      refreshToken: () => refreshInterviewToken(interviewId),
     });
 
     // Revealed once the socket actually connects, not the instant it's
@@ -179,7 +215,10 @@ export function InterviewRoom({
       setConnectedIds((prev) => (prev.includes(userId) ? prev : [...prev, userId]));
     const handlePresenceLeave = ({ userId }: { userId: string }) =>
       setConnectedIds((prev) => prev.filter((id) => id !== userId));
-    const handleChat = (message: ChatMessage) => setMessages((prev) => [...prev, message]);
+    const handleChat = (message: ChatMessageEvent) =>
+      setMessages((prev) => mergeMessages(prev, [message]));
+    const handleChatHistory = (history: ChatMessageEvent[]) =>
+      setMessages((prev) => mergeMessages(prev, history));
 
     // Carries only an id (see apps/realtime/src/index.ts's /internal/broadcast
     // handler) — reaching every socket in the room, including whoever
@@ -199,29 +238,79 @@ export function InterviewRoom({
     nextProvider.socket.on("presence:join", handlePresenceJoin);
     nextProvider.socket.on("presence:leave", handlePresenceLeave);
     nextProvider.socket.on("chat:message", handleChat);
+    nextProvider.socket.on("chat:history", handleChatHistory);
     nextProvider.socket.on("execution:result", handleExecutionResult);
 
-    // Advisory-only integrity signals — never blocks or auto-flags a
-    // candidate (PRD risk mitigation on anti-cheat).
-    const handleVisibility = () => {
-      if (document.hidden) {
-        nextProvider.socket.emit("integrity:signal", { interviewId, type: "TAB_BLUR" });
-      }
+    // Interviewers and observers see the candidate's signals as they happen,
+    // as a passing note rather than an alert — they are context, not verdicts.
+    const handleIntegritySignal = ({ userId, type, payload }: IntegritySignalEvent) => {
+      toast(`${nameForRef.current(userId)}: ${describeIntegritySignal(type, payload)}`);
     };
-    const handlePaste = () =>
-      nextProvider.socket.emit("integrity:signal", { interviewId, type: "PASTE" });
+    if (role !== "CANDIDATE") {
+      nextProvider.socket.on("integrity:signal", handleIntegritySignal);
+    }
 
-    document.addEventListener("visibilitychange", handleVisibility);
-    document.addEventListener("paste", handlePaste);
+    // Advisory-only integrity signals — never blocks or auto-flags a
+    // candidate (PRD risk mitigation on anti-cheat). Sent only about the
+    // candidate: an interviewer switching tabs to check notes, or pasting a
+    // starter snippet, is not something to put on the candidate's record.
+    const emitSignal = (type: IntegritySignalEvent["type"], payload?: { length: number }) =>
+      nextProvider.socket.emit("integrity:signal", { interviewId, type, payload });
+
+    const handleVisibility = () => {
+      if (document.hidden) emitSignal("TAB_BLUR");
+    };
+
+    // Only pastes into the shared editor. Pasting a link into chat is not a
+    // coding-integrity question. The length is read and sent; the text is not.
+    const handlePaste = (event: ClipboardEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target?.closest(".monaco-editor")) return;
+      emitSignal("PASTE", { length: event.clipboardData?.getData("text/plain").length ?? 0 });
+    };
+
+    // fullscreenchange fires on entering and on leaving; only leaving counts.
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) emitSignal("FULLSCREEN_EXIT");
+    };
+
+    const isCandidate = role === "CANDIDATE";
+    if (isCandidate) {
+      document.addEventListener("visibilitychange", handleVisibility);
+      document.addEventListener("paste", handlePaste);
+      document.addEventListener("fullscreenchange", handleFullscreenChange);
+    }
 
     return () => {
-      document.removeEventListener("visibilitychange", handleVisibility);
-      document.removeEventListener("paste", handlePaste);
+      if (isCandidate) {
+        document.removeEventListener("visibilitychange", handleVisibility);
+        document.removeEventListener("paste", handlePaste);
+        document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      }
       nextProvider.destroy();
       setProvider(null);
       setConnectedIds([]);
     };
-  }, [interviewId, token, currentUserId, me?.name]);
+  }, [interviewId, token, currentUserId, me?.name, role]);
+
+  // Tracked from fullscreenchange rather than read during render, since
+  // `document` doesn't exist on the server.
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    const sync = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      document.documentElement.requestFullscreen().catch(() => {
+        toast.error("Your browser didn't allow full screen.");
+      });
+    }
+  }
 
   function sendMessage(event: FormEvent) {
     event.preventDefault();
@@ -301,12 +390,13 @@ export function InterviewRoom({
         {messages.length === 0 ? (
           <span className="text-muted-foreground">No messages yet.</span>
         ) : (
-          messages.map((message, index) => (
-            <div key={index} className="break-words">
+          messages.map((message) => (
+            <div key={message.id} className="break-words">
               <span className="font-medium">{nameFor(message.userId)}:</span> {message.body}
             </div>
           ))
         )}
+        <div ref={chatEndRef} />
       </div>
       <form onSubmit={sendMessage} className="flex shrink-0 gap-2 border-t p-2">
         <Input
@@ -387,6 +477,9 @@ export function InterviewRoom({
               </Button>
             </>
           )}
+          <Button size="sm" variant="outline" onClick={toggleFullscreen}>
+            {fullscreen ? "Exit full screen" : "Full screen"}
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -396,6 +489,12 @@ export function InterviewRoom({
           </Button>
         </div>
       </header>
+
+      {role === "CANDIDATE" && (
+        <p className="shrink-0 rounded-lg border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
+          {INTEGRITY_DISCLOSURE.summary} {INTEGRITY_DISCLOSURE.detail}
+        </p>
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
         {/* Deliberately not a <Card>: its `overflow-hidden` and

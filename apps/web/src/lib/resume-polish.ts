@@ -3,6 +3,7 @@ import "server-only";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { prisma } from "@interviewhub/db";
 import { polishResponseSchema, type PolishResponse } from "@interviewhub/types";
+import { consumeRateLimit, RateLimitError, releaseRateLimit } from "./rate-limit";
 
 export class PolishError extends Error {}
 
@@ -39,8 +40,9 @@ Guidelines:
 /**
  * Generates resume polishing suggestions using Gemini.
  *
- * Rate-limited to MAX_POLISH_ATTEMPTS per application. The count is
- * tracked via a simple audit log query — no extra schema needed.
+ * Capped at MAX_POLISH_ATTEMPTS per application for its lifetime. An attempt
+ * is spent before Gemini is called (so parallel requests cannot all slip in)
+ * and handed back if the call fails, so a Gemini outage costs nothing.
  */
 export async function polishResume(
   applicationId: string,
@@ -51,7 +53,7 @@ export async function polishResume(
     where: { id: applicationId, candidateId },
     select: {
       id: true,
-      job: { select: { description: true, requiredSkills: true, title: true } },
+      job: { select: { orgId: true, description: true, requiredSkills: true, title: true } },
       resumes: {
         take: 1,
         orderBy: { createdAt: "desc" },
@@ -76,22 +78,25 @@ export async function polishResume(
     throw new PolishError("No parsed resume text available.");
   }
 
-  // Rate limit: count existing polish audit logs for this application
-  const polishCount = await prisma.auditLog.count({
-    where: {
-      action: "resume.polished",
-      target: applicationId,
-    },
-  });
-
-  if (polishCount >= MAX_POLISH_ATTEMPTS) {
-    throw new PolishError(
-      `You have used all ${MAX_POLISH_ATTEMPTS} polish attempts for this application.`,
-    );
-  }
-
+  // Checked before spending an attempt: an unconfigured deployment must not
+  // burn through a candidate's allowance on calls that can never succeed.
   if (!gemini) {
     throw new PolishError("Resume polishing is not available — AI service not configured.");
+  }
+
+  let hitId: string;
+  try {
+    ({ hitId } = await consumeRateLimit({
+      key: `polish:${applicationId}`,
+      limit: MAX_POLISH_ATTEMPTS,
+    }));
+  } catch (err) {
+    if (err instanceof RateLimitError) {
+      throw new PolishError(
+        `You have used all ${MAX_POLISH_ATTEMPTS} polish attempts for this application.`,
+      );
+    }
+    throw err;
   }
 
   const atsReport = resume.atsReports[0];
@@ -116,28 +121,36 @@ ${atsFeedback}
 ## Resume Text
 ${resume.parsedText}`;
 
-  const result = await model.generateContent({
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    systemInstruction: { role: "model", parts: [{ text: POLISH_PROMPT }] },
-    generationConfig: {
-      responseMimeType: "application/json",
-      temperature: 0.3,
-    },
-  });
+  let validated: PolishResponse;
+  try {
+    const result = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      systemInstruction: { role: "model", parts: [{ text: POLISH_PROMPT }] },
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 0.3,
+      },
+    });
 
-  const text = result.response.text();
-  const parsed = JSON.parse(text);
-  const validated = polishResponseSchema.parse(parsed);
+    validated = polishResponseSchema.parse(JSON.parse(result.response.text()));
+  } catch (err) {
+    await releaseRateLimit(hitId);
+    throw err;
+  }
 
-  // Track usage for rate limiting (no orgId needed — candidate action)
-  await prisma.auditLog.create({
-    data: {
-      orgId: "system",
-      actorId: candidateId,
-      action: "resume.polished",
-      target: applicationId,
-    },
-  }).catch(() => {});
+  // A record for people, not the limiter. Logged rather than thrown on
+  // failure: the candidate already has their suggestions and has spent the
+  // attempt, and losing the result over a bookkeeping write would be worse.
+  await prisma.auditLog
+    .create({
+      data: {
+        orgId: application.job.orgId,
+        actorId: candidateId,
+        action: "resume.polished",
+        target: applicationId,
+      },
+    })
+    .catch((err) => console.error("[polish] audit log write failed", err));
 
   return validated;
 }

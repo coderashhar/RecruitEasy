@@ -13,11 +13,33 @@ export const chatMessageSchema = z.object({
   body: z.string().min(1).max(2000),
 });
 
+/** Server-to-client shape of one chat message, live (`chat:message`) or replayed (`chat:history`). */
+export interface ChatMessageEvent {
+  id: string;
+  userId: string;
+  body: string;
+  /** Epoch milliseconds, from the row's createdAt. */
+  at: number;
+}
+
 export const integritySignalSchema = z.object({
   interviewId: z.string().min(1),
   type: z.enum(["TAB_BLUR", "PASTE", "FULLSCREEN_EXIT"]),
-  payload: z.record(z.string(), z.unknown()).optional(),
+  // Strict and specific, not an open record: this is stored verbatim, and the
+  // candidate is told a paste's length is the only detail kept. An open
+  // record would let a client store anything, including the pasted text.
+  payload: z
+    .object({ length: z.number().int().nonnegative() })
+    .strict()
+    .optional(),
 });
+
+/** Server-to-client: relayed to the other people in the room as it happens. */
+export interface IntegritySignalEvent {
+  userId: string;
+  type: z.infer<typeof integritySignalSchema>["type"];
+  payload?: z.infer<typeof integritySignalSchema>["payload"];
+}
 
 export const executionBroadcastSchema = z.object({
   interviewId: z.string().min(1),

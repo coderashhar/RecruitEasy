@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { InterviewRoom } from "@/components/interview/interview-room";
 import { authorizeInterviewAccess } from "@/lib/interview-access";
-import { mintInterviewToken } from "@/lib/interview-token";
+import { interviewTokenLifetimeSeconds, mintInterviewToken } from "@/lib/interview-token";
 import { isLiveKitConfigured, mintVideoToken } from "@/lib/livekit-token";
 import { ROLES } from "@/lib/roles";
 import { requireCurrentUser } from "@/lib/users";
@@ -22,12 +22,7 @@ export default async function InterviewPage({
   // distinguish "no such interview" from "exists, but not yours".
   if (!access) notFound();
 
-  // Long enough to outlast the scheduled slot itself, plus room for an
-  // interview that runs over — there's no reconnect-time refresh, so a token
-  // that expires before the interview realistically ends would strand
-  // whoever's still in the room on the next network blip.
-  const GRACE_PERIOD_MINUTES = 30;
-  const sessionSeconds = (access.interview.durationMins + GRACE_PERIOD_MINUTES) * 60;
+  const sessionSeconds = interviewTokenLifetimeSeconds(access.interview.durationMins);
 
   const token = mintInterviewToken({
     interviewId: access.interview.id,

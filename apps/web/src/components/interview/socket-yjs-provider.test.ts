@@ -26,6 +26,12 @@ class FakeSocket {
   listeners = new Map<string, Set<(...args: unknown[]) => void>>();
   emitted: Array<{ event: string; args: unknown[] }> = [];
   disconnected = false;
+  auth: unknown = undefined;
+  connectCalls = 0;
+
+  connect() {
+    this.connectCalls += 1;
+  }
   io = new FakeManager();
 
   on(event: string, handler: (...args: unknown[]) => void) {
@@ -137,10 +143,8 @@ describe("SocketYjsProvider", () => {
     expect(() => awareness.setLocalStateField("name", "after destroy")).not.toThrow();
   });
 
-  // The regression this guards: a join token is minted for the interview's
-  // length plus a grace period with no refresh path, so an expired token and
-  // a flaky network look identical to the user unless they are reported
-  // apart — only one of the two is fixed by reloading.
+  // An expired token and a flaky network must be reported apart — only one of
+  // the two is fixed by reloading.
   test("reports connection status, distinguishing an expired token from a drop", () => {
     const seen: string[] = [];
     new SocketYjsProvider({
@@ -162,6 +166,74 @@ describe("SocketYjsProvider", () => {
       "disconnected",
       "unauthorized",
     ]);
+  });
+
+  test("a rejected token is refreshed once and the socket reconnects with the new one", async () => {
+    const seen: string[] = [];
+    const refreshToken = vi.fn().mockResolvedValue("fresh-token");
+    new SocketYjsProvider({
+      url: "http://x",
+      token: "stale-token",
+      identity: IDENTITY,
+      onStatus: (status) => seen.push(status),
+      refreshToken,
+    });
+
+    lastSocket.receive("connect_error", new Error("unauthorized"));
+    await vi.waitFor(() => expect(lastSocket.connectCalls).toBe(1));
+
+    expect(refreshToken).toHaveBeenCalledTimes(1);
+    expect(lastSocket.auth).toEqual({ token: "fresh-token" });
+    expect(seen).toEqual(["connecting", "reconnecting"]);
+  });
+
+  // Guards against an infinite loop when even a fresh token is refused, e.g.
+  // REALTIME_JWT_SECRET differing between apps/web and apps/realtime.
+  test("a fresh token that is also rejected stops at unauthorized instead of looping", async () => {
+    const seen: string[] = [];
+    const refreshToken = vi.fn().mockResolvedValue("fresh-token");
+    new SocketYjsProvider({
+      url: "http://x",
+      token: "stale-token",
+      identity: IDENTITY,
+      onStatus: (status) => seen.push(status),
+      refreshToken,
+    });
+
+    lastSocket.receive("connect_error", new Error("unauthorized"));
+    await vi.waitFor(() => expect(lastSocket.connectCalls).toBe(1));
+    lastSocket.receive("connect_error", new Error("unauthorized"));
+
+    expect(refreshToken).toHaveBeenCalledTimes(1);
+    expect(seen.at(-1)).toBe("unauthorized");
+  });
+
+  test("a successful connection re-arms the refresh for the next expiry", async () => {
+    const refreshToken = vi.fn().mockResolvedValue("fresh-token");
+    new SocketYjsProvider({ url: "http://x", token: "t", identity: IDENTITY, refreshToken });
+
+    lastSocket.receive("connect_error", new Error("unauthorized"));
+    await vi.waitFor(() => expect(lastSocket.connectCalls).toBe(1));
+    lastSocket.receive("connect");
+    lastSocket.receive("connect_error", new Error("unauthorized"));
+    await vi.waitFor(() => expect(lastSocket.connectCalls).toBe(2));
+
+    expect(refreshToken).toHaveBeenCalledTimes(2);
+  });
+
+  test("no token available (signed out, removed from the interview) reports unauthorized", async () => {
+    const seen: string[] = [];
+    new SocketYjsProvider({
+      url: "http://x",
+      token: "t",
+      identity: IDENTITY,
+      onStatus: (status) => seen.push(status),
+      refreshToken: () => Promise.resolve(null),
+    });
+
+    lastSocket.receive("connect_error", new Error("unauthorized"));
+    await vi.waitFor(() => expect(seen.at(-1)).toBe("unauthorized"));
+    expect(lastSocket.connectCalls).toBe(0);
   });
 
   test("publishes identity into awareness so peers can label the caret", () => {

@@ -1,14 +1,17 @@
 import { createServer } from "node:http";
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { Server, type Socket } from "socket.io";
 import {
   chatMessageSchema,
   integritySignalSchema,
   executionBroadcastSchema,
+  type ChatMessageEvent,
+  type IntegritySignalEvent,
 } from "@interviewhub/types";
 import { prisma, Prisma } from "@interviewhub/db";
 import { verifyInterviewToken } from "./auth.js";
 import { getRoom, onJoin, onLeave, applyRemoteUpdate, encodeState } from "./rooms.js";
+import { createSocketLimit } from "./socket-limit.js";
 
 const PORT = Number(process.env.PORT ?? 4000);
 const CORS_ORIGIN = (process.env.CORS_ORIGIN ?? "http://localhost:3000").split(",");
@@ -27,6 +30,21 @@ interface SocketData {
 }
 
 const INTERNAL_SECRET_BYTES = Buffer.from(INTERNAL_SECRET);
+
+// Replayed to every socket on join. Bounded so a very chatty interview can't
+// turn every reconnect into an unbounded query and payload.
+const CHAT_HISTORY_LIMIT = 200;
+
+// Generous for a person typing, far below what a loop would send.
+const CHAT_LIMIT = { count: 20, windowMs: 10_000 };
+
+// A candidate alt-tabbing repeatedly produces a few a minute; past this it is
+// a loop, and every extra row only buries the real ones for the reviewer.
+const INTEGRITY_LIMIT = { count: 60, windowMs: 60_000 };
+
+function toChatEvent(row: { id: string; userId: string; body: string; createdAt: Date }): ChatMessageEvent {
+  return { id: row.id, userId: row.userId, body: row.body, at: row.createdAt.getTime() };
+}
 
 /** Constant-time compare, and never true for a missing or malformed header. */
 function isValidInternalSecret(header: string | string[] | undefined): boolean {
@@ -131,21 +149,44 @@ io.on("connection", (socket: Socket<any, any, any, SocketData>) => {
     socket.to(interviewId).emit("awareness:update", update);
   });
 
-  socket.on("chat:message", (raw: unknown) => {
+  const allowChat = createSocketLimit(CHAT_LIMIT.count, CHAT_LIMIT.windowMs);
+
+  socket.on("chat:message", async (raw: unknown) => {
     const parsed = chatMessageSchema.safeParse(raw);
-    if (!parsed.success) return;
-    io.to(interviewId).emit("chat:message", {
-      userId,
-      body: parsed.data.body,
-      at: Date.now(),
-    });
+    if (!parsed.success || !allowChat()) return;
+
+    // Persisted before it is broadcast, so the id everyone receives is the
+    // row's own — which is what lets a client merge this live message with a
+    // later chat:history replay without showing it twice.
+    let message: ChatMessageEvent;
+    try {
+      const row = await prisma.chatMessage.create({
+        data: { interviewId, userId, body: parsed.data.body },
+      });
+      message = toChatEvent(row);
+    } catch (err) {
+      // A database blip must not silence the room: people are mid-interview.
+      // The message still goes out live; it just won't survive a reload.
+      console.error(`[realtime] chat persist failed for interview ${interviewId}`, err);
+      message = { id: randomUUID(), userId, body: parsed.data.body, at: Date.now() };
+    }
+
+    io.to(interviewId).emit("chat:message", message);
   });
+
+  const allowIntegritySignal = createSocketLimit(INTEGRITY_LIMIT.count, INTEGRITY_LIMIT.windowMs);
 
   // Advisory only — never blocks or auto-flags a candidate (see PRD risk
   // mitigation on anti-cheat, and IntegritySignal in the data model).
   socket.on("integrity:signal", (raw: unknown) => {
+    // Signals describe the candidate, so only the candidate's socket may
+    // record them. The client already sends them only from that role; this
+    // is the check that holds when a client doesn't — an interviewer pasting
+    // a starter snippet must not land on the candidate's review page.
+    if (role !== "CANDIDATE") return;
+
     const parsed = integritySignalSchema.safeParse(raw);
-    if (!parsed.success) return;
+    if (!parsed.success || !allowIntegritySignal()) return;
 
     prisma.integritySignal
       .create({
@@ -157,7 +198,12 @@ io.on("connection", (socket: Socket<any, any, any, SocketData>) => {
       })
       .catch((err) => console.error("[integrity] persist failed", err));
 
-    socket.to(interviewId).emit("integrity:signal", { userId, type: parsed.data.type });
+    const event: IntegritySignalEvent = {
+      userId,
+      type: parsed.data.type,
+      payload: parsed.data.payload,
+    };
+    socket.to(interviewId).emit("integrity:signal", event);
   });
 
   socket.on("disconnecting", () => {
@@ -196,6 +242,20 @@ io.on("connection", (socket: Socket<any, any, any, SocketData>) => {
       );
 
       socket.to(interviewId).emit("presence:join", { userId, role });
+
+      // Sent on every connection, reconnects included, so a client that
+      // dropped for a minute gets back whatever was said while it was gone.
+      // Its own failure is not a failed join: the editor and call still work.
+      try {
+        const rows = await prisma.chatMessage.findMany({
+          where: { interviewId },
+          orderBy: { createdAt: "desc" },
+          take: CHAT_HISTORY_LIMIT,
+        });
+        socket.emit("chat:history", rows.reverse().map(toChatEvent));
+      } catch (err) {
+        console.error(`[realtime] chat history failed for interview ${interviewId}`, err);
+      }
     })
     .catch((err) => {
       console.error(`[realtime] join failed for interview ${interviewId}`, err);

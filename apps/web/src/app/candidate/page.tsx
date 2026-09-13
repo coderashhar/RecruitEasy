@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ApplicationStatus, InterviewStatus } from "@interviewhub/db";
+import { INTEGRITY_DISCLOSURE } from "@/lib/integrity";
 import { getCandidateOverview } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
 
@@ -40,7 +41,7 @@ export default async function CandidateDashboard() {
         <CardHeader>
           <CardTitle>Upcoming interviews</CardTitle>
           <CardDescription>
-            {upcomingInterviews.length === 0 ? "Nothing scheduled yet." : undefined}
+            {upcomingInterviews.length === 0 ? "Nothing scheduled yet." : INTEGRITY_DISCLOSURE.summary}
           </CardDescription>
         </CardHeader>
         {upcomingInterviews.length > 0 && (

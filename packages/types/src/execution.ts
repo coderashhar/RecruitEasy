@@ -28,6 +28,10 @@ export const executeRequestSchema = z.object({
 });
 export type ExecuteRequest = z.infer<typeof executeRequestSchema>;
 
+/** A candidate's solo practice run: the same limits as an interview Run, with no interview. */
+export const practiceRunRequestSchema = executeRequestSchema.omit({ interviewId: true });
+export type PracticeRunRequest = z.infer<typeof practiceRunRequestSchema>;
+
 export const executionStatusSchema = z.enum([
   "QUEUED",
   "RUNNING",

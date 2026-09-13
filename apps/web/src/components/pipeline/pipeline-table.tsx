@@ -172,6 +172,16 @@ export function PipelineTable({ rows: initial }: { rows: PipelineRow[] }) {
         {selected.size > 0 && (
           <div className="flex items-center gap-1.5 ml-auto">
             <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+            {selected.size >= 2 && selected.size <= 4 ? (
+              <Button
+                size="sm"
+                className="h-7 text-xs"
+                nativeButton={false}
+                render={<Link href={`/recruiter/compare?ids=${[...selected].join(",")}`}>Compare</Link>}
+              />
+            ) : (
+              <span className="text-xs text-muted-foreground">Select 2–4 to compare</span>
+            )}
             {ALL_STATUSES.map((s) => (
               <Button
                 key={s}

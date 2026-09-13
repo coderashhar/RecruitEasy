@@ -1,22 +1,27 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
 
 const findFirstApplication = vi.fn();
+const findManyApplication = vi.fn();
 const findFirstResume = vi.fn();
 
 vi.mock("@interviewhub/db", () => ({
   prisma: {
-    application: { findFirst: (...args: unknown[]) => findFirstApplication(...args) },
+    application: {
+      findFirst: (...args: unknown[]) => findFirstApplication(...args),
+      findMany: (...args: unknown[]) => findManyApplication(...args),
+    },
     resume: { findFirst: (...args: unknown[]) => findFirstResume(...args) },
   },
 }));
 
-const { summarizeFeedback, getApplicationProfile, getLatestResumeKey } = await import(
+const { summarizeFeedback, getApplicationProfile, getLatestResumeKey, parseCompareIds, getComparison } = await import(
   "./candidate-profile.js"
 );
 
 beforeEach(() => {
   findFirstApplication.mockReset();
   findFirstResume.mockReset();
+  findManyApplication.mockReset();
 });
 
 describe("summarizeFeedback", () => {
@@ -70,5 +75,74 @@ describe("org scoping", () => {
         where: { applicationId: "app_1", application: { job: { orgId: "org_1" } } },
       }),
     );
+  });
+});
+
+describe("parseCompareIds", () => {
+  test("splits, trims and de-duplicates", () => {
+    expect(parseCompareIds(" a, b ,a,,c")).toEqual(["a", "b", "c"]);
+    expect(parseCompareIds(["a,b", "c"])).toEqual(["a", "b", "c"]);
+  });
+
+  test("fewer than 2 or more than 4 distinct ids is not a comparison", () => {
+    expect(parseCompareIds(undefined)).toBeNull();
+    expect(parseCompareIds("a,a")).toBeNull();
+    expect(parseCompareIds("a,b,c,d,e")).toBeNull();
+  });
+});
+
+function applicationRow(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    status: "INTERVIEWING",
+    shortlistedAt: null,
+    candidate: { id: `cand_${id}`, name: `Candidate ${id}` },
+    job: { id: "job_1", title: "Backend Engineer" },
+    resumes: [
+      {
+        atsReports: [
+          { score: 72, skillsMatch: { matched: ["Go"], partial: [], missing: ["SQL"] } },
+        ],
+      },
+    ],
+    interviews: [
+      {
+        status: "COMPLETED",
+        feedback: [{ rubricScores: { coding: 4, problemSolving: 4, communication: 3 }, recommendation: "YES" }],
+        _count: { integritySignals: 2 },
+      },
+      { status: "SCHEDULED", feedback: [], _count: { integritySignals: 0 } },
+    ],
+    ...overrides,
+  };
+}
+
+describe("getComparison", () => {
+  // Dropping the foreign id would still reveal which guessed ids exist.
+  test("any id outside the org fails the whole comparison", async () => {
+    findManyApplication.mockResolvedValue([applicationRow("a")]);
+
+    await expect(getComparison("org_1", ["a", "b_other_org"])).resolves.toBeNull();
+    expect(findManyApplication).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: ["a", "b_other_org"] }, job: { orgId: "org_1" } } }),
+    );
+  });
+
+  test("columns come back in the requested order, summarised", async () => {
+    findManyApplication.mockResolvedValue([applicationRow("b"), applicationRow("a", { shortlistedAt: new Date() })]);
+
+    const columns = await getComparison("org_1", ["a", "b"]);
+
+    expect(columns?.map((column) => column.applicationId)).toEqual(["a", "b"]);
+    expect(columns?.[0]).toMatchObject({
+      shortlisted: true,
+      atsScore: 72,
+      matchedSkills: ["Go"],
+      missingSkills: ["SQL"],
+      roundsCompleted: 1,
+      roundsTotal: 2,
+      integritySignals: 2,
+    });
+    expect(columns?.[0].feedback.averages).toEqual({ coding: 4, problemSolving: 4, communication: 3 });
   });
 });

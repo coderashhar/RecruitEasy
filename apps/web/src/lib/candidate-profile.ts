@@ -99,3 +99,77 @@ export async function getLatestResumeKey(orgId: string, applicationId: string) {
   });
   return resume?.fileKey ?? null;
 }
+
+export const COMPARE_MIN = 2;
+export const COMPARE_MAX = 4;
+
+/**
+ * Reads `?ids=a,b,c` into distinct, non-empty ids. Returns null unless there
+ * are between COMPARE_MIN and COMPARE_MAX of them — a comparison of one is a
+ * profile, and past four the columns stop fitting a screen.
+ */
+export function parseCompareIds(raw: string | string[] | undefined): string[] | null {
+  const joined = Array.isArray(raw) ? raw.join(",") : (raw ?? "");
+  const ids = [...new Set(joined.split(",").map((id) => id.trim()).filter(Boolean))];
+  return ids.length >= COMPARE_MIN && ids.length <= COMPARE_MAX ? ids : null;
+}
+
+/**
+ * Side-by-side data for several applications, in the order given.
+ *
+ * All or nothing: if any id isn't an application in this org, the whole
+ * comparison is null. Quietly dropping the foreign ids would still confirm,
+ * by omission, which of the guessed ids exist elsewhere.
+ */
+export async function getComparison(orgId: string, applicationIds: string[]) {
+  const applications = await prisma.application.findMany({
+    where: { id: { in: applicationIds }, job: { orgId } },
+    include: {
+      candidate: { select: { id: true, name: true } },
+      job: { select: { id: true, title: true } },
+      resumes: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        include: { atsReports: { orderBy: { createdAt: "desc" }, take: 1 } },
+      },
+      interviews: {
+        select: {
+          status: true,
+          feedback: { select: { rubricScores: true, recommendation: true } },
+          _count: { select: { integritySignals: true } },
+        },
+      },
+    },
+  });
+  if (applications.length !== applicationIds.length) return null;
+
+  const byId = new Map(applications.map((application) => [application.id, application]));
+
+  return applicationIds.map((id) => {
+    const application = byId.get(id)!;
+    const report = application.resumes[0]?.atsReports[0] ?? null;
+    const skillsMatch = report?.skillsMatch as
+      | { matched: string[]; partial: string[]; missing: string[] }
+      | undefined;
+
+    return {
+      applicationId: application.id,
+      candidateName: application.candidate.name,
+      jobTitle: application.job.title,
+      status: application.status,
+      shortlisted: application.shortlistedAt !== null,
+      atsScore: report?.score ?? null,
+      matchedSkills: skillsMatch?.matched ?? [],
+      missingSkills: skillsMatch?.missing ?? [],
+      roundsCompleted: application.interviews.filter((interview) => interview.status === "COMPLETED").length,
+      roundsTotal: application.interviews.length,
+      integritySignals: application.interviews.reduce(
+        (sum, interview) => sum + interview._count.integritySignals,
+        0,
+      ),
+      feedback: summarizeFeedback(application.interviews.flatMap((interview) => interview.feedback)),
+    };
+  });
+}
+
+export type ComparisonColumn = NonNullable<Awaited<ReturnType<typeof getComparison>>>[number];

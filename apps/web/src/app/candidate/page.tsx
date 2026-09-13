@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ApplicationStatus, InterviewStatus } from "@interviewhub/db";
+import { RequestDeletionButton } from "@/components/privacy/request-deletion-button";
+import { getCandidateDeletionRequest } from "@/lib/data-deletion";
 import { INTEGRITY_DISCLOSURE } from "@/lib/integrity";
 import { getCandidateOverview } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
@@ -29,7 +31,10 @@ const INTERVIEW_STATUS_VARIANT: Record<InterviewStatus, BadgeVariant> = {
 
 export default async function CandidateDashboard() {
   const { user } = await requireCurrentUser(["CANDIDATE"]);
-  const { applications, upcomingInterviews, pastInterviews } = await getCandidateOverview(user.id);
+  const [{ applications, upcomingInterviews, pastInterviews }, deletionRequest] = await Promise.all([
+    getCandidateOverview(user.id),
+    getCandidateDeletionRequest(user.id),
+  ]);
 
   const latestReport = applications
     .flatMap((application) => application.resumes[0]?.atsReports[0] ?? [])
@@ -162,6 +167,24 @@ export default async function CandidateDashboard() {
                 </div>
               );
             })}
+          </CardContent>
+        )}
+      </Card>
+
+      <Card className="sm:col-span-2 lg:col-span-3">
+        <CardHeader>
+          <CardTitle>Your data</CardTitle>
+          <CardDescription>
+            {deletionRequest?.status === "PENDING"
+              ? `You asked for your data to be deleted on ${deletionRequest.requestedAt.toLocaleDateString(undefined, { dateStyle: "medium" })}. An administrator will process it.`
+              : deletionRequest?.status === "REJECTED"
+                ? `Your deletion request was declined: ${deletionRequest.reason ?? "no reason given"}. You can ask again.`
+                : "You can ask for your account and everything attached to it to be permanently deleted."}
+          </CardDescription>
+        </CardHeader>
+        {deletionRequest?.status !== "PENDING" && (
+          <CardContent>
+            <RequestDeletionButton />
           </CardContent>
         )}
       </Card>

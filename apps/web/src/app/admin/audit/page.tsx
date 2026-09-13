@@ -52,6 +52,9 @@ export default async function AuditLogPage({
           <h1 className="text-lg font-semibold">Audit log</h1>
           <p className="text-sm text-muted-foreground">Every recorded change in your organisation, newest first.</p>
         </div>
+        <Link href="/admin/deletion-requests" className="text-sm text-primary hover:underline">
+          Data deletion requests
+        </Link>
       </div>
 
       <Card>

@@ -4,31 +4,9 @@ import { prisma, type Execution } from "@interviewhub/db";
 import type { ExecuteRequest, ExecutionResult } from "@interviewhub/types";
 import { authorizeInterviewAccess } from "./interview-access";
 import { runOnJudge0 } from "./judge0";
+import { broadcastToRoom } from "./realtime-broadcast";
 
 export class ExecutionError extends Error {}
-
-/**
- * Tells apps/realtime's already-built /internal/broadcast hook an execution
- * finished, the same x-internal-secret it already verifies for that
- * endpoint. Best-effort: a missed broadcast means participants have to
- * refresh to see the result, not that the result is lost — it's already
- * committed to the Execution row before this is ever called.
- */
-async function notifyRealtimeService(interviewId: string, executionId: string): Promise<void> {
-  const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL;
-  const secret = process.env.REALTIME_JWT_SECRET;
-  if (!realtimeUrl || !secret) return;
-
-  try {
-    await fetch(`${realtimeUrl}/internal/broadcast`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-internal-secret": secret },
-      body: JSON.stringify({ interviewId, executionId }),
-    });
-  } catch (err) {
-    console.error(`[execution] failed to notify realtime service`, err);
-  }
-}
 
 /**
  * Runs a participant's code through Judge0 and records the result.
@@ -76,7 +54,7 @@ export async function submitExecution(userId: string, input: ExecuteRequest): Pr
       },
     });
   } finally {
-    await notifyRealtimeService(input.interviewId, execution.id);
+    await broadcastToRoom({ interviewId: input.interviewId, executionId: execution.id });
   }
 }
 

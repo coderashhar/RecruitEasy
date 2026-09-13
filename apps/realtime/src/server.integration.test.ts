@@ -364,4 +364,34 @@ describe("realtime server (integration, real DB + real sockets)", () => {
     candidate.socket.close();
     interviewer.socket.close();
   });
+
+  // The web app announces executions and recording changes through one hook.
+  // An older web deploy sends executions without a `type`; that must keep working.
+  test("internal broadcasts reach the room: recording state, and executions with or without a type", async () => {
+    const interviewId = await createInterview();
+    const candidate = await connect(tokenFor(interviewId, candidateId, "CANDIDATE"));
+    await candidate.next("chat:history");
+
+    async function post(body: unknown, secret = SECRET) {
+      return fetch(`${URL}/internal/broadcast`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-internal-secret": secret },
+        body: JSON.stringify(body),
+      });
+    }
+
+    expect((await post({ type: "recording", interviewId, state: "recording" })).status).toBe(204);
+    expect(await candidate.next("recording:state")).toEqual({ state: "recording" });
+
+    expect((await post({ interviewId, executionId: "exec_legacy" })).status).toBe(204);
+    expect(await candidate.next("execution:result")).toEqual({ executionId: "exec_legacy" });
+
+    expect((await post({ type: "execution", interviewId, executionId: "exec_typed" })).status).toBe(204);
+    expect(await candidate.next("execution:result")).toEqual({ executionId: "exec_typed" });
+
+    expect((await post({ type: "recording", interviewId, state: "rewinding" })).status).toBe(400);
+    expect((await post({ type: "recording", interviewId, state: "idle" }, "wrong-secret-value-xx")).status).toBe(401);
+
+    candidate.socket.close();
+  });
 });

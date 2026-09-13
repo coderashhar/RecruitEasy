@@ -109,6 +109,7 @@ model User {
   feedback               Feedback[]
   notifications          Notification[]
   auditLogs               AuditLog[]
+  chatMessages           ChatMessage[]
 
   @@index([orgId])
   @@map("users")
@@ -217,6 +218,7 @@ model Interview {
   recording     Recording?
   feedback      Feedback[]
   integritySignals IntegritySignal[]
+  chatMessages  ChatMessage[]
 
   @@index([applicationId])
   @@map("interviews")
@@ -296,6 +298,22 @@ model Feedback {
   @@unique([interviewId, interviewerId])
   @@index([interviewId])
   @@map("feedback")
+}
+
+// In-room chat. Persisted so a reload or a dropped connection doesn't wipe
+// the conversation, and so a reviewer can read what was said alongside the
+// code and the feedback.
+model ChatMessage {
+  id          String    @id @default(cuid())
+  interviewId String
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  body        String
+  createdAt   DateTime  @default(now())
+
+  @@index([interviewId, createdAt])
+  @@map("chat_messages")
 }
 
 model IntegritySignal {

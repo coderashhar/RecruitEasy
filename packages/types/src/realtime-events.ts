@@ -13,6 +13,15 @@ export const chatMessageSchema = z.object({
   body: z.string().min(1).max(2000),
 });
 
+/** Server-to-client shape of one chat message, live (`chat:message`) or replayed (`chat:history`). */
+export interface ChatMessageEvent {
+  id: string;
+  userId: string;
+  body: string;
+  /** Epoch milliseconds, from the row's createdAt. */
+  at: number;
+}
+
 export const integritySignalSchema = z.object({
   interviewId: z.string().min(1),
   type: z.enum(["TAB_BLUR", "PASTE", "FULLSCREEN_EXIT"]),

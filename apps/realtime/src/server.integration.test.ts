@@ -296,4 +296,32 @@ describe("realtime server (integration, real DB + real sockets)", () => {
     first.socket.close();
     second.socket.close();
   });
+
+  // Chat used to live only in each browser's memory: a reload, or a network
+  // drop long enough to reconnect, and the conversation was gone for that
+  // person while the other still had it.
+  test("chat is persisted and replayed to whoever (re)connects", async () => {
+    const interviewId = await createInterview();
+
+    const candidate = await connect(tokenFor(interviewId, candidateId, "CANDIDATE"));
+    const interviewer = await connect(tokenFor(interviewId, interviewerId, "INTERVIEWER"));
+    await Promise.all([candidate.next("chat:history"), interviewer.next("chat:history")]);
+
+    candidate.socket.emit("chat:message", { interviewId, body: "can you hear me?" });
+    const live = await interviewer.next("chat:message");
+    expect(live).toMatchObject({ userId: candidateId, body: "can you hear me?" });
+
+    // The broadcast id is the row's id — the property the client's merge of
+    // live messages with a later replay depends on.
+    const row = await prisma.chatMessage.findUnique({ where: { id: live.id } });
+    expect(row).toMatchObject({ interviewId, userId: candidateId, body: "can you hear me?" });
+
+    interviewer.socket.close();
+    const rejoined = await connect(tokenFor(interviewId, interviewerId, "INTERVIEWER"));
+    const history = await rejoined.next("chat:history");
+    expect(history).toEqual([live]);
+
+    candidate.socket.close();
+    rejoined.socket.close();
+  });
 });

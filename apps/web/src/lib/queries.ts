@@ -152,6 +152,10 @@ export async function getInterviewDetail(orgId: string, interviewId: string) {
       },
       codeDocument: true,
       integritySignals: { orderBy: { occurredAt: "asc" } },
+      chatMessages: {
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { name: true } } },
+      },
       feedback: {
         orderBy: { createdAt: "desc" },
         include: { interviewer: { select: { id: true, name: true } } },

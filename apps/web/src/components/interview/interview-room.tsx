@@ -1,7 +1,15 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type FormEvent,
+} from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +18,7 @@ import type { InterviewParticipantRole, InterviewStatus } from "@interviewhub/db
 import {
   DEFAULT_LANGUAGE,
   supportedLanguageSchema,
+  type ChatMessageEvent,
   type ExecutionResult,
   type SupportedLanguage,
 } from "@interviewhub/types";
@@ -58,10 +67,16 @@ export interface InterviewRoomProps {
   videoServerUrl: string | null;
 }
 
-interface ChatMessage {
-  userId: string;
-  body: string;
-  at: number;
+/**
+ * Union of two message lists by id, in send order. A live chat:message and
+ * the chat:history replay sent on (re)connect can overlap in either order —
+ * a message can land just before the replay that also contains it, or the
+ * replay can arrive first — so neither may simply replace or append.
+ */
+function mergeMessages(current: ChatMessageEvent[], incoming: ChatMessageEvent[]) {
+  const byId = new Map(current.map((message) => [message.id, message]));
+  for (const message of incoming) byId.set(message.id, message);
+  return [...byId.values()].sort((a, b) => a.at - b.at);
 }
 
 const STATUS_COPY: Record<ConnectionStatus, { label: string; tone: "ok" | "warn" | "bad" }> = {
@@ -89,8 +104,14 @@ export function InterviewRoom({
   const [provider, setProvider] = useState<SocketYjsProvider | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>("connecting");
   const [connectedIds, setConnectedIds] = useState<string[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessageEvent[]>([]);
   const [draft, setDraft] = useState("");
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Keeps the newest message in view, including the replay on join.
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ block: "end" });
+  }, [messages]);
 
   // Presence and chat arrive from the realtime service carrying only a
   // userId; the roster is what turns those into names.
@@ -179,7 +200,10 @@ export function InterviewRoom({
       setConnectedIds((prev) => (prev.includes(userId) ? prev : [...prev, userId]));
     const handlePresenceLeave = ({ userId }: { userId: string }) =>
       setConnectedIds((prev) => prev.filter((id) => id !== userId));
-    const handleChat = (message: ChatMessage) => setMessages((prev) => [...prev, message]);
+    const handleChat = (message: ChatMessageEvent) =>
+      setMessages((prev) => mergeMessages(prev, [message]));
+    const handleChatHistory = (history: ChatMessageEvent[]) =>
+      setMessages((prev) => mergeMessages(prev, history));
 
     // Carries only an id (see apps/realtime/src/index.ts's /internal/broadcast
     // handler) — reaching every socket in the room, including whoever
@@ -199,6 +223,7 @@ export function InterviewRoom({
     nextProvider.socket.on("presence:join", handlePresenceJoin);
     nextProvider.socket.on("presence:leave", handlePresenceLeave);
     nextProvider.socket.on("chat:message", handleChat);
+    nextProvider.socket.on("chat:history", handleChatHistory);
     nextProvider.socket.on("execution:result", handleExecutionResult);
 
     // Advisory-only integrity signals — never blocks or auto-flags a
@@ -301,12 +326,13 @@ export function InterviewRoom({
         {messages.length === 0 ? (
           <span className="text-muted-foreground">No messages yet.</span>
         ) : (
-          messages.map((message, index) => (
-            <div key={index} className="break-words">
+          messages.map((message) => (
+            <div key={message.id} className="break-words">
               <span className="font-medium">{nameFor(message.userId)}:</span> {message.body}
             </div>
           ))
         )}
+        <div ref={chatEndRef} />
       </div>
       <form onSubmit={sendMessage} className="flex shrink-0 gap-2 border-t p-2">
         <Input

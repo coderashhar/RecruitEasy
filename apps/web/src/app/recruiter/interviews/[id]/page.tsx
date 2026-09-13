@@ -139,6 +139,31 @@ export default async function InterviewDetailPage({
 
       <Card>
         <CardHeader>
+          <CardTitle>Chat</CardTitle>
+          <CardDescription>
+            {interview.chatMessages.length === 0
+              ? "Nothing was said in the room's chat."
+              : `${interview.chatMessages.length} message${interview.chatMessages.length === 1 ? "" : "s"}.`}
+          </CardDescription>
+        </CardHeader>
+        {interview.chatMessages.length > 0 && (
+          <CardContent className="flex max-h-96 flex-col gap-1.5 overflow-y-auto">
+            {interview.chatMessages.map((message) => (
+              <div key={message.id} className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="min-w-0 break-words">
+                  <span className="font-medium">{message.user.name}:</span> {message.body}
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {message.createdAt.toLocaleTimeString()}
+                </span>
+              </div>
+            ))}
+          </CardContent>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Integrity signals</CardTitle>
           <CardDescription>
             {interview.integritySignals.length === 0

@@ -19,6 +19,7 @@ export default async function RecruiterDashboard() {
       jobTitle: job.title,
       status: application.status,
       atsScore: application.resumes[0]?.atsReports[0]?.score ?? null,
+      shortlisted: application.shortlistedAt !== null,
     })),
   );
 

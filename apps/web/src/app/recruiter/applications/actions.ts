@@ -1,8 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { applicationStatusSchema, updateApplicationStatusSchema } from "@interviewhub/types";
-import { ApplicationError, updateApplicationStatus } from "@/lib/applications";
+import {
+  applicationStatusSchema,
+  setShortlistedSchema,
+  updateApplicationStatusSchema,
+} from "@interviewhub/types";
+import {
+  ApplicationError,
+  setApplicationShortlisted,
+  updateApplicationStatus,
+} from "@/lib/applications";
 import { requireCurrentUser } from "@/lib/users";
 
 /**
@@ -67,5 +75,22 @@ export async function bulkChangeApplicationStatus(
 
   if (errors.length > 0) {
     throw new Error(`${errors.length} application(s) failed to update.`);
+  }
+}
+
+/** RECRUITER/ADMIN only, like every other pipeline decision. */
+export async function toggleShortlist(applicationId: string, shortlisted: boolean) {
+  const { user } = await requireCurrentUser(["RECRUITER", "ADMIN"]);
+
+  const parsed = setShortlistedSchema.safeParse({ applicationId, shortlisted });
+  if (!parsed.success) throw new Error("Invalid input.");
+
+  try {
+    const result = await setApplicationShortlisted(user.orgId, user.id, parsed.data);
+    revalidatePath("/recruiter");
+    return result;
+  } catch (err) {
+    if (err instanceof ApplicationError) throw new Error(err.message);
+    throw err;
   }
 }

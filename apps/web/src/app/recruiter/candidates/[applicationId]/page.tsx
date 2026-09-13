@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { ApplicationStatus, FeedbackRecommendation, InterviewStatus } from "@interviewhub/db";
 import { RUBRIC_CRITERIA } from "@interviewhub/types";
 import { ApplicationStatusSelect } from "@/components/pipeline/application-status-select";
+import { ShortlistToggle } from "@/components/pipeline/shortlist-toggle";
 import { getApplicationProfile } from "@/lib/candidate-profile";
 import { requireCurrentUser } from "@/lib/users";
 
@@ -52,7 +53,17 @@ export default async function CandidateProfilePage({
       <Card>
         <CardHeader className="flex-row flex-wrap items-start justify-between gap-3 space-y-0">
           <div className="min-w-0">
-            <CardTitle className="text-lg">{profile.candidate.name}</CardTitle>
+            <CardTitle className="flex items-center gap-1 text-lg">
+              {canManage && (
+                <ShortlistToggle
+                  applicationId={profile.id}
+                  candidateName={profile.candidate.name}
+                  shortlisted={profile.shortlistedAt !== null}
+                />
+              )}
+              {profile.candidate.name}
+              {!canManage && profile.shortlistedAt && <Badge variant="secondary">Shortlisted</Badge>}
+            </CardTitle>
             <CardDescription>
               {profile.job.title} · {profile.candidate.email} · applied{" "}
               {profile.createdAt.toLocaleDateString(undefined, { dateStyle: "medium" })}

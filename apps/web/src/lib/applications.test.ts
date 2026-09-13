@@ -38,9 +38,8 @@ vi.mock("@interviewhub/db", () => ({
   },
 }));
 
-const { createApplicationForOrg, updateApplicationStatus, ApplicationError } = await import(
-  "./applications.js"
-);
+const { createApplicationForOrg, updateApplicationStatus, setApplicationShortlisted, ApplicationError } =
+  await import("./applications.js");
 
 const ORG_ID = "org_1";
 const ACTOR_ID = "user_recruiter";
@@ -195,5 +194,68 @@ describe("updateApplicationStatus", () => {
     await expect(
       updateApplicationStatus(ORG_ID, ACTOR_ID, { applicationId: "app_1", status: "SCREENING" }),
     ).resolves.toEqual({ id: "app_1", status: "SCREENING" });
+  });
+});
+
+describe("setApplicationShortlisted", () => {
+  beforeEach(() => {
+    updateApplication.mockResolvedValue({ count: 1 });
+  });
+
+  test("application from another org -> rejected before any write", async () => {
+    findFirstApplication.mockResolvedValue(null);
+
+    await expect(
+      setApplicationShortlisted(ORG_ID, ACTOR_ID, { applicationId: "app_x", shortlisted: true }),
+    ).rejects.toThrow(ApplicationError);
+    expect(findFirstApplication).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "app_x", job: { orgId: ORG_ID } } }),
+    );
+    expect(updateApplication).not.toHaveBeenCalled();
+  });
+
+  test("shortlisting sets the timestamp and records it, conditional on it being unset", async () => {
+    findFirstApplication.mockResolvedValue({ id: "app_1", shortlistedAt: null });
+
+    await expect(
+      setApplicationShortlisted(ORG_ID, ACTOR_ID, { applicationId: "app_1", shortlisted: true }),
+    ).resolves.toEqual({ shortlisted: true });
+    expect(updateApplication).toHaveBeenCalledWith({
+      where: { id: "app_1", shortlistedAt: null },
+      data: { shortlistedAt: expect.any(Date) },
+    });
+    expect(createAuditLog).toHaveBeenCalledWith({
+      data: { orgId: ORG_ID, actorId: ACTOR_ID, action: "application.shortlisted", target: "app_1" },
+    });
+  });
+
+  test("removing it clears the timestamp and records that", async () => {
+    findFirstApplication.mockResolvedValue({ id: "app_1", shortlistedAt: new Date() });
+
+    await setApplicationShortlisted(ORG_ID, ACTOR_ID, { applicationId: "app_1", shortlisted: false });
+    expect(updateApplication).toHaveBeenCalledWith({
+      where: { id: "app_1", shortlistedAt: { not: null } },
+      data: { shortlistedAt: null },
+    });
+    expect(createAuditLog).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: "application.unshortlisted" }),
+    });
+  });
+
+  // A double-click must not record two decisions.
+  test("asking for the state it already has writes nothing", async () => {
+    findFirstApplication.mockResolvedValue({ id: "app_1", shortlistedAt: new Date() });
+
+    await setApplicationShortlisted(ORG_ID, ACTOR_ID, { applicationId: "app_1", shortlisted: true });
+    expect(updateApplication).not.toHaveBeenCalled();
+    expect(createAuditLog).not.toHaveBeenCalled();
+  });
+
+  test("losing a race to someone else's toggle writes no audit entry", async () => {
+    findFirstApplication.mockResolvedValue({ id: "app_1", shortlistedAt: null });
+    updateApplication.mockResolvedValue({ count: 0 });
+
+    await setApplicationShortlisted(ORG_ID, ACTOR_ID, { applicationId: "app_1", shortlisted: true });
+    expect(createAuditLog).not.toHaveBeenCalled();
   });
 });

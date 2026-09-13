@@ -3,6 +3,7 @@ import "server-only";
 import { Prisma, prisma, type Application } from "@interviewhub/db";
 import type {
   CreateApplicationInput,
+  SetShortlistedInput,
   UpdateApplicationStatusInput,
 } from "@interviewhub/types";
 import { applicationStatusEmail } from "./email-templates";
@@ -122,6 +123,55 @@ export async function updateApplicationStatus(
   notifyApplicationStatusChange(application.id, input.status).catch(() => {});
 
   return result;
+}
+
+/**
+ * Marks or unmarks an application as shortlisted. Internal to the hiring team:
+ * no status change and no message to the candidate.
+ *
+ * Setting the state it already has is a no-op rather than a second audit
+ * entry, so a double-click doesn't record two decisions.
+ */
+export async function setApplicationShortlisted(
+  orgId: string,
+  actorId: string,
+  input: SetShortlistedInput,
+): Promise<{ shortlisted: boolean }> {
+  const application = await prisma.application.findFirst({
+    where: { id: input.applicationId, job: { orgId } },
+    select: { id: true, shortlistedAt: true },
+  });
+  if (!application) {
+    throw new ApplicationError("Application not found in your organization.");
+  }
+
+  if ((application.shortlistedAt !== null) === input.shortlisted) {
+    return { shortlisted: input.shortlisted };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // Conditional on the state just read, like the status update: two people
+    // toggling at once produce one recorded change, not two contradictory ones.
+    const { count } = await tx.application.updateMany({
+      where: {
+        id: application.id,
+        shortlistedAt: input.shortlisted ? null : { not: null },
+      },
+      data: { shortlistedAt: input.shortlisted ? new Date() : null },
+    });
+    if (count === 0) return;
+
+    await tx.auditLog.create({
+      data: {
+        orgId,
+        actorId,
+        action: input.shortlisted ? "application.shortlisted" : "application.unshortlisted",
+        target: application.id,
+      },
+    });
+  });
+
+  return { shortlisted: input.shortlisted };
 }
 
 async function notifyApplicationStatusChange(

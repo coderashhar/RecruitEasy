@@ -25,6 +25,14 @@ vi.mock("@interviewhub/db", () => ({
   },
 }));
 
+const sendInterviewInvites = vi.fn();
+vi.mock("./interview-notices", () => ({
+  sendInterviewInvites: (...args: unknown[]) => sendInterviewInvites(...args),
+}));
+
+// after() needs a live request scope; run the callback inline instead.
+vi.mock("next/server", () => ({ after: (callback: () => unknown) => callback() }));
+
 vi.mock("./scheduling.js", () => ({
   findInterviewerConflict: (...args: unknown[]) => findInterviewerConflict(...args),
 }));
@@ -55,6 +63,7 @@ beforeEach(() => {
   findInterviewerConflict.mockReset();
   findInterviewerConflict.mockResolvedValue(false);
   findManyParticipant.mockResolvedValue([{ userId: "user_interviewer" }]);
+  sendInterviewInvites.mockReset();
 });
 
 describe("updateInterviewStatus", () => {
@@ -101,7 +110,7 @@ describe("updateInterviewStatus", () => {
         // concurrent transition can't slip past the matrix check.
         expect(updateInterview).toHaveBeenCalledWith({
           where: { id: "interview_1", status: from },
-          data: { status: to },
+          data: to === "CANCELLED" ? { status: to, icsSequence: { increment: 1 } } : { status: to },
         });
       } else {
         await expect(promise).rejects.toThrow(LifecycleError);
@@ -109,6 +118,18 @@ describe("updateInterviewStatus", () => {
       }
     });
   }
+
+  test("cancelling sends everyone a calendar cancellation; other transitions send nothing", async () => {
+    findFirstInterview.mockResolvedValue(interview("SCHEDULED"));
+    findUniqueOrThrowInterview.mockResolvedValue(interview("COMPLETED"));
+    await updateInterviewStatus(ORG_ID, ACTOR_ID, { interviewId: "interview_1", status: "COMPLETED" });
+    expect(sendInterviewInvites).not.toHaveBeenCalled();
+
+    findFirstInterview.mockResolvedValue(interview("SCHEDULED"));
+    findUniqueOrThrowInterview.mockResolvedValue(interview("CANCELLED"));
+    await updateInterviewStatus(ORG_ID, ACTOR_ID, { interviewId: "interview_1", status: "CANCELLED" });
+    expect(sendInterviewInvites).toHaveBeenCalledWith("interview_1", "cancelled");
+  });
 
   test("a concurrent transition (0 rows matched) -> rejected, no audit log", async () => {
     findFirstInterview.mockResolvedValue(interview("SCHEDULED"));
@@ -202,8 +223,13 @@ describe("rescheduleInterview", () => {
     expect(result).toMatchObject(rescheduleInput);
     expect(updateInterview).toHaveBeenCalledWith({
       where: { id: "interview_1", status: "SCHEDULED" },
-      data: { scheduledAt: rescheduleInput.scheduledAt, durationMins: rescheduleInput.durationMins },
+      data: {
+        scheduledAt: rescheduleInput.scheduledAt,
+        durationMins: rescheduleInput.durationMins,
+        icsSequence: { increment: 1 },
+      },
     });
+    expect(sendInterviewInvites).toHaveBeenCalledWith("interview_1", "rescheduled");
     expect(createAuditLog).toHaveBeenCalledWith({
       data: expect.objectContaining({
         action: "interview.rescheduled",

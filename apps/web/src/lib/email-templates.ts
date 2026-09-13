@@ -57,51 +57,110 @@ export function applicationStatusEmail(
 }
 
 // ---------------------------------------------------------------------------
-// Interview scheduled / rescheduled
+// Interview notices: invites, changes, cancellations, reminders
 // ---------------------------------------------------------------------------
 
-export function interviewScheduledEmail(
-  candidateName: string,
-  jobTitle: string,
-  scheduledAt: Date,
-  durationMins: number,
-  joinUrl: string,
-): EmailContent {
-  const dateStr = scheduledAt.toLocaleString("en-US", {
-    dateStyle: "full",
-    timeStyle: "short",
-  });
+export type InterviewNoticeKind = "scheduled" | "rescheduled" | "cancelled" | "reminder";
 
-  const subject = `Interview scheduled — ${jobTitle}`;
-  const html = layoutHtml(
-    "Interview scheduled",
-    `<p>Hi ${escapeHtml(candidateName)},</p>
-     <p>Your interview for <strong>${escapeHtml(jobTitle)}</strong> has been scheduled:</p>
-     <ul>
-       <li><strong>When:</strong> ${escapeHtml(dateStr)}</li>
-       <li><strong>Duration:</strong> ${durationMins} minutes</li>
-     </ul>
-     <p><a href="${escapeHtml(joinUrl)}" style="display:inline-block;padding:10px 20px;background:#18181b;color:#fff;border-radius:6px;text-decoration:none;font-weight:500;">Join interview</a></p>`,
-  );
-  const text = `Hi ${candidateName},\n\nYour interview for ${jobTitle} is scheduled:\n\nWhen: ${dateStr}\nDuration: ${durationMins} minutes\n\nJoin: ${joinUrl}\n`;
-
-  return { subject, text, html };
+export interface InterviewNoticeInput {
+  kind: InterviewNoticeKind;
+  recipientName: string;
+  /** Candidates are told about "your interview"; interviewers, who the interview is with. */
+  recipientIsCandidate: boolean;
+  candidateName: string;
+  jobTitle: string;
+  scheduledAt: Date;
+  durationMins: number;
+  joinUrl: string;
+  /** Only for "reminder": how far off the interview is, e.g. "in 1 hour". */
+  startsIn?: string;
 }
 
-export function interviewRescheduledEmail(
-  candidateName: string,
-  jobTitle: string,
-  scheduledAt: Date,
-  durationMins: number,
-  joinUrl: string,
-): EmailContent {
-  const content = interviewScheduledEmail(candidateName, jobTitle, scheduledAt, durationMins, joinUrl);
-  return {
-    ...content,
-    subject: `Interview rescheduled — ${jobTitle}`,
-    html: content.html.replace("Interview scheduled", "Interview rescheduled"),
-    text: content.text.replace("is scheduled", "has been rescheduled"),
-  };
+/**
+ * Formatted in UTC and labelled as such. This runs on the server — UTC on
+ * Vercel, whatever the machine is set to locally — which has no idea where the
+ * recipient is, so an unlabelled time was silently wrong for anyone outside
+ * the server's zone. The attached calendar invite carries the exact instant
+ * and shows it in the recipient's own time.
+ */
+export function formatInterviewTime(date: Date): string {
+  return date.toLocaleString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  });
+}
+
+const NOTICE_COPY: Record<InterviewNoticeKind, { subject: string; heading: string; lead: string }> = {
+  scheduled: {
+    subject: "Interview scheduled",
+    heading: "Interview scheduled",
+    lead: "has been scheduled",
+  },
+  rescheduled: {
+    subject: "Interview rescheduled",
+    heading: "Interview rescheduled",
+    lead: "has been moved to a new time",
+  },
+  cancelled: {
+    subject: "Interview cancelled",
+    heading: "Interview cancelled",
+    lead: "has been cancelled",
+  },
+  reminder: {
+    subject: "Reminder: interview",
+    heading: "Interview reminder",
+    lead: "is coming up",
+  },
+};
+
+export function interviewNoticeEmail(input: InterviewNoticeInput): EmailContent {
+  const copy = NOTICE_COPY[input.kind];
+  const when = formatInterviewTime(input.scheduledAt);
+  const cancelled = input.kind === "cancelled";
+
+  const about = input.recipientIsCandidate
+    ? `Your interview for ${input.jobTitle}`
+    : `Your interview with ${input.candidateName} for ${input.jobTitle}`;
+  const aboutHtml = input.recipientIsCandidate
+    ? `Your interview for <strong>${escapeHtml(input.jobTitle)}</strong>`
+    : `Your interview with <strong>${escapeHtml(input.candidateName)}</strong> for <strong>${escapeHtml(input.jobTitle)}</strong>`;
+
+  const lead =
+    input.kind === "reminder" && input.startsIn ? `starts ${input.startsIn}` : copy.lead;
+
+  const subjectPrefix =
+    input.kind === "reminder" && input.startsIn
+      ? `Reminder: interview ${input.startsIn}`
+      : copy.subject;
+  const subject = `${subjectPrefix} — ${input.jobTitle}`;
+
+  const detailsHtml = `<ul>
+       <li><strong>When:</strong> ${escapeHtml(when)}</li>
+       <li><strong>Duration:</strong> ${input.durationMins} minutes</li>
+     </ul>`;
+  const buttonHtml = cancelled
+    ? ""
+    : `<p><a href="${escapeHtml(input.joinUrl)}" style="display:inline-block;padding:10px 20px;background:#18181b;color:#fff;border-radius:6px;text-decoration:none;font-weight:500;">Join interview</a></p>`;
+
+  const html = layoutHtml(
+    copy.heading,
+    `<p>Hi ${escapeHtml(input.recipientName)},</p>
+     <p>${aboutHtml} ${lead}${cancelled ? "." : ":"}</p>
+     ${cancelled ? `<p>It was scheduled for ${escapeHtml(when)}.</p>` : detailsHtml}
+     ${buttonHtml}`,
+  );
+
+  const text = cancelled
+    ? `Hi ${input.recipientName},\n\n${about} ${lead}.\n\nIt was scheduled for ${when}.\n`
+    : `Hi ${input.recipientName},\n\n${about} ${lead}:\n\nWhen: ${when}\nDuration: ${input.durationMins} minutes\n\nJoin: ${input.joinUrl}\n`;
+
+  return { subject, text, html };
 }
 
 // ---------------------------------------------------------------------------

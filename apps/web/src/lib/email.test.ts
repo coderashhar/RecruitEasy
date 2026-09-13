@@ -65,4 +65,21 @@ describe("sendEmail", () => {
 
     expect(result).toBe(false);
   });
+
+  test("passes attachments through to Resend", async () => {
+    mockSend.mockResolvedValue({ data: { id: "email_2" }, error: null });
+
+    await sendEmail({
+      to: "bob@example.com",
+      subject: "Invite",
+      text: "See attached.",
+      attachments: [{ filename: "invite.ics", content: "BEGIN:VCALENDAR", contentType: "text/calendar" }],
+    });
+
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [{ filename: "invite.ics", content: "BEGIN:VCALENDAR", contentType: "text/calendar" }],
+      }),
+    );
+  });
 });

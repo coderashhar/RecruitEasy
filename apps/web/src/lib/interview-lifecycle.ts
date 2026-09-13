@@ -1,9 +1,9 @@
 import "server-only";
 
+import { after } from "next/server";
 import { prisma, type Interview, type InterviewStatus } from "@interviewhub/db";
 import type { RescheduleInterviewInput, UpdateInterviewStatusInput } from "@interviewhub/types";
-import { interviewRescheduledEmail } from "./email-templates";
-import { notifyUser } from "./notifications";
+import { sendInterviewInvites } from "./interview-notices";
 import { findInterviewerConflict } from "./scheduling";
 
 export class LifecycleError extends Error {}
@@ -46,7 +46,7 @@ export async function updateInterviewStatus(
     throw new LifecycleError(`Cannot move an interview from ${interview.status} to ${input.status}.`);
   }
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     // Re-asserts the status we validated against as part of the write itself.
     // The read above happened outside this transaction, so without this two
     // concurrent transitions would both pass the check and the later write
@@ -54,7 +54,12 @@ export async function updateInterviewStatus(
     // LEGAL_TRANSITIONS says can never be left.
     const { count } = await tx.interview.updateMany({
       where: { id: interview.id, status: interview.status },
-      data: { status: input.status },
+      data: {
+        status: input.status,
+        // A calendar ignores a cancellation whose SEQUENCE isn't above the
+        // invite it already holds, and would keep showing the interview.
+        ...(input.status === "CANCELLED" && { icsSequence: { increment: 1 } }),
+      },
     });
 
     if (count === 0) {
@@ -73,6 +78,14 @@ export async function updateInterviewStatus(
 
     return tx.interview.findUniqueOrThrow({ where: { id: interview.id } });
   });
+
+  // Until now a cancelled interview stayed on everyone's calendar, and the
+  // candidate was never told.
+  if (input.status === "CANCELLED") {
+    after(() => sendInterviewInvites(interview.id, "cancelled"));
+  }
+
+  return result;
 }
 
 /**
@@ -118,7 +131,13 @@ export async function rescheduleInterview(
     // was cancelled or started between the read and this update.
     const { count } = await tx.interview.updateMany({
       where: { id: interview.id, status: "SCHEDULED" },
-      data: { scheduledAt: input.scheduledAt, durationMins: input.durationMins },
+      data: {
+        scheduledAt: input.scheduledAt,
+        durationMins: input.durationMins,
+        // Without a higher SEQUENCE, calendars treat the new invite as stale
+        // and leave the event at its old time.
+        icsSequence: { increment: 1 },
+      },
     });
 
     if (count === 0) {
@@ -141,53 +160,7 @@ export async function rescheduleInterview(
     return tx.interview.findUniqueOrThrow({ where: { id: interview.id } });
   });
 
-  // Fire-and-forget: notify candidate of rescheduled time.
-  notifyInterviewRescheduled(interview.id, input.scheduledAt, input.durationMins).catch(() => {});
+  after(() => sendInterviewInvites(interview.id, "rescheduled"));
 
   return result;
-}
-
-async function notifyInterviewRescheduled(
-  interviewId: string,
-  scheduledAt: Date,
-  durationMins: number,
-): Promise<void> {
-  const data = await prisma.interview.findUnique({
-    where: { id: interviewId },
-    select: {
-      roomName: true,
-      application: {
-        select: {
-          candidate: { select: { id: true, name: true, email: true } },
-          job: { select: { title: true } },
-        },
-      },
-    },
-  });
-  if (!data) return;
-
-  const { candidate } = data.application;
-  const jobTitle = data.application.job.title;
-  const joinUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/interview/${interviewId}`;
-
-  const emailContent = interviewRescheduledEmail(
-    candidate.name,
-    jobTitle,
-    scheduledAt,
-    durationMins,
-    joinUrl,
-  );
-
-  await notifyUser(candidate.id, {
-    type: "interview.rescheduled",
-    title: emailContent.subject,
-    body: `Your interview for ${jobTitle} has been rescheduled.`,
-    link: `/interview/${interviewId}`,
-    email: {
-      to: candidate.email,
-      subject: emailContent.subject,
-      text: emailContent.text,
-      html: emailContent.html,
-    },
-  });
 }

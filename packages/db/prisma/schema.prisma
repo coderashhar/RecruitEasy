@@ -209,6 +209,10 @@ model Interview {
   round         Int              @default(1)
   status        InterviewStatus  @default(SCHEDULED)
   roomName      String           @unique
+  // RFC 5545 SEQUENCE for the calendar invite. A calendar client only applies
+  // an update or cancellation whose SEQUENCE is higher than the copy it holds,
+  // so every reschedule and cancellation must bump this before sending.
+  icsSequence   Int              @default(0)
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 

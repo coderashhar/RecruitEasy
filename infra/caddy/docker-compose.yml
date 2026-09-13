@@ -29,7 +29,7 @@ services:
     networks:
       - interviewhub
 
-  # Triggers apps/web's scheduled jobs. The web app runs on Vercel, where the
+  # Triggers apps/web's scheduled jobs (reminders, retention). The web app runs on Vercel, where the
   # Hobby plan's cron fires at most once a day — far too coarse for a
   # "starts in 1 hour" reminder — so this box, which is always on anyway,
   # calls the route every 10 minutes instead. Each call is idempotent; a
@@ -49,6 +49,8 @@ services:
       - |
         while true; do
           curl -fsS --max-time 60 -H "Authorization: Bearer $$CRON_SECRET" "$$APP_URL/api/cron/reminders" || echo "reminders tick failed"
+          echo
+          curl -fsS --max-time 120 -H "Authorization: Bearer $$CRON_SECRET" "$$APP_URL/api/cron/retention" || echo "retention tick failed"
           echo
           sleep 600
         done

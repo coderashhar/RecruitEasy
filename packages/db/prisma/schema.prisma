@@ -59,6 +59,9 @@ enum RecordingStatus {
   PROCESSING
   READY
   FAILED
+  // The file was deleted under the retention policy; the row remains so the
+  // interview page can say so rather than "not recorded".
+  EXPIRED
 }
 
 enum FeedbackRecommendation {

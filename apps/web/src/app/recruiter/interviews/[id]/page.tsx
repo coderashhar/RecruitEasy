@@ -128,7 +128,9 @@ export default async function InterviewDetailPage({
               ? "Not recorded. The interviewer can start a recording from the room."
               : recording.status === "READY"
                 ? `${recording.durationSec ? `${Math.floor(recording.durationSec / 60)} min ${recording.durationSec % 60} s. ` : ""}${recording.error ?? ""}`
-                : recording.status === "FAILED"
+                : recording.status === "EXPIRED"
+                  ? (recording.error ?? "The recording was deleted under the retention policy.")
+                  : recording.status === "FAILED"
                   ? `Recording failed: ${recording.error ?? "no reason given."}`
                   : recording.status === "PROCESSING"
                     ? "Recording stopped — LiveKit is still saving the file. Reload in a minute."

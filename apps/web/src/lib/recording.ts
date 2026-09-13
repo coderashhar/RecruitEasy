@@ -49,6 +49,8 @@ export function roomStateFor(recording: Pick<Recording, "status"> | null): Recor
       return "ready";
     case "FAILED":
       return "failed";
+    // Deleted under the retention policy: nothing to show in a room.
+    case "EXPIRED":
     default:
       return "idle";
   }

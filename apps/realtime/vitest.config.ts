@@ -12,5 +12,12 @@ if (existsSync(envPath)) {
 export default defineConfig({
   test: {
     environment: "node",
+    // The integration suite talks to a real, remote Postgres (Neon). Each test
+    // makes several round trips — create an interview, hydrate the room, load
+    // chat history — and takes 2-5s on its own, which vitest's 5s default
+    // failed intermittently, and reliably once turbo ran it alongside the web
+    // suite. Timing out means "the network was slow", not "the code is wrong".
+    testTimeout: 20_000,
+    hookTimeout: 30_000,
   },
 });

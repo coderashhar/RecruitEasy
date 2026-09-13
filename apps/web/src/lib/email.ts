@@ -15,6 +15,19 @@ export interface SendEmailOptions {
   text?: string;
   /** HTML body. */
   html?: string;
+  /** e.g. a calendar invite. Content is sent as-is. */
+  attachments?: EmailAttachment[];
+}
+
+export interface EmailAttachment {
+  filename: string;
+  content: string;
+  contentType?: string;
+}
+
+/** The configured sender, also used as a calendar invite's ORGANIZER. */
+export function emailFromAddress(): string {
+  return FROM_ADDRESS;
 }
 
 /**
@@ -38,6 +51,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
       from: FROM_ADDRESS,
       to: options.to,
       subject: options.subject,
+      ...(options.attachments?.length ? { attachments: options.attachments } : {}),
       ...(options.html ? { html: options.html } : { text: options.text ?? "" }),
     });
 

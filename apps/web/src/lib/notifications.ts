@@ -1,7 +1,7 @@
 import "server-only";
 
 import { prisma } from "@interviewhub/db";
-import { sendEmail } from "./email";
+import { sendEmail, type SendEmailOptions } from "./email";
 
 export interface NotifyUserOptions {
   type: string;
@@ -9,12 +9,7 @@ export interface NotifyUserOptions {
   body: string;
   link?: string;
   /** When set, also sends an email to this address. */
-  email?: {
-    to: string;
-    subject: string;
-    text?: string;
-    html?: string;
-  };
+  email?: SendEmailOptions;
 }
 
 /**
@@ -43,12 +38,7 @@ export async function notifyUser(
   }
 
   if (options.email) {
-    await sendEmail({
-      to: options.email.to,
-      subject: options.email.subject,
-      text: options.email.text,
-      html: options.email.html,
-    });
+    await sendEmail(options.email);
   }
 }
 

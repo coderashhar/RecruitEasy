@@ -1,10 +1,10 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
+import { after } from "next/server";
 import { prisma, type Interview } from "@interviewhub/db";
 import { INTERVIEWER_CAPABLE_ROLES, type ScheduleInterviewInput } from "@interviewhub/types";
-import { interviewScheduledEmail } from "./email-templates";
-import { notifyUser } from "./notifications";
+import { sendInterviewInvites } from "./interview-notices";
 
 export class SchedulingError extends Error {}
 
@@ -125,53 +125,12 @@ export async function scheduleInterviewForOrg(
     return interview;
   });
 
-  // Fire-and-forget: notify candidate their interview is scheduled.
-  notifyInterviewScheduled(result.id, input.scheduledAt, input.durationMins).catch(() => {});
+  // Everyone invited gets the email and a calendar invite — the interviewers
+  // too, who previously weren't told at all. after(), not a floating promise:
+  // on Vercel the function can be frozen the moment the action responds, and
+  // an unawaited send would be cut off with it. Registered only once the
+  // transaction has committed, since after() also runs when a request fails.
+  after(() => sendInterviewInvites(result.id, "scheduled"));
 
   return result;
-}
-
-async function notifyInterviewScheduled(
-  interviewId: string,
-  scheduledAt: Date,
-  durationMins: number,
-): Promise<void> {
-  const interview = await prisma.interview.findUnique({
-    where: { id: interviewId },
-    select: {
-      roomName: true,
-      application: {
-        select: {
-          candidate: { select: { id: true, name: true, email: true } },
-          job: { select: { title: true } },
-        },
-      },
-    },
-  });
-  if (!interview) return;
-
-  const { candidate } = interview.application;
-  const jobTitle = interview.application.job.title;
-  const joinUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/interview/${interviewId}`;
-
-  const emailContent = interviewScheduledEmail(
-    candidate.name,
-    jobTitle,
-    scheduledAt,
-    durationMins,
-    joinUrl,
-  );
-
-  await notifyUser(candidate.id, {
-    type: "interview.scheduled",
-    title: emailContent.subject,
-    body: `Your interview for ${jobTitle} is scheduled.`,
-    link: `/interview/${interviewId}`,
-    email: {
-      to: candidate.email,
-      subject: emailContent.subject,
-      text: emailContent.text,
-      html: emailContent.html,
-    },
-  });
 }

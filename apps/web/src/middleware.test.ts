@@ -51,7 +51,7 @@ function locationOf(res: Response | undefined): string | null {
 
 describe("middleware", () => {
   test("public routes pass through unauthenticated", async () => {
-    for (const path of ["/", "/sign-in", "/sign-up/verify"]) {
+    for (const path of ["/", "/sign-in", "/sign-up/verify", "/api/cron/reminders"]) {
       const res = await middleware(fakeAuth(null), reqFor(path));
       expect(res).toBeUndefined();
     }

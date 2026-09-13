@@ -24,6 +24,14 @@ vi.mock("@interviewhub/db", () => ({
   },
 }));
 
+const sendInterviewInvites = vi.fn();
+vi.mock("./interview-notices", () => ({
+  sendInterviewInvites: (...args: unknown[]) => sendInterviewInvites(...args),
+}));
+
+// after() needs a live request scope; run the callback inline instead.
+vi.mock("next/server", () => ({ after: (callback: () => unknown) => callback() }));
+
 const { scheduleInterviewForOrg, SchedulingError } = await import("./scheduling.js");
 
 const ORG_ID = "org_1";
@@ -41,6 +49,7 @@ function input(overrides: Partial<ScheduleInterviewInput> = {}): ScheduleIntervi
 }
 
 beforeEach(() => {
+  sendInterviewInvites.mockReset();
   findFirstApplication.mockReset();
   findManyUser.mockReset();
   findManyParticipant.mockReset();
@@ -112,6 +121,18 @@ describe("scheduleInterviewForOrg", () => {
     expect(createAuditLog).toHaveBeenCalledWith({
       data: expect.objectContaining({ orgId: ORG_ID, actorId: ACTOR_ID, target: "interview_1" }),
     });
+  });
+
+  test("invites go out only once the interview exists, never for a rejected request", async () => {
+    findFirstApplication.mockResolvedValue(null);
+    await expect(scheduleInterviewForOrg(ORG_ID, ACTOR_ID, input())).rejects.toThrow();
+    expect(sendInterviewInvites).not.toHaveBeenCalled();
+
+    findFirstApplication.mockResolvedValue({ id: "app_1", candidateId: "user_candidate" });
+    findManyUser.mockResolvedValue([{ id: "user_interviewer" }]);
+    createInterview.mockResolvedValue({ id: "interview_new" });
+    await scheduleInterviewForOrg(ORG_ID, ACTOR_ID, input());
+    expect(sendInterviewInvites).toHaveBeenCalledWith("interview_new", "scheduled");
   });
 
   test("roomName is unique per call, not derived from applicationId", async () => {

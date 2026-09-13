@@ -20,8 +20,10 @@ import {
   supportedLanguageSchema,
   type ChatMessageEvent,
   type ExecutionResult,
+  type IntegritySignalEvent,
   type SupportedLanguage,
 } from "@interviewhub/types";
+import { INTEGRITY_DISCLOSURE, describeIntegritySignal } from "@/lib/integrity";
 import type { RosterEntry } from "@/lib/interview-access";
 import {
   getExecutionResult,
@@ -123,6 +125,14 @@ export function InterviewRoom({
     (userId: string) => roster.find((entry) => entry.userId === userId)?.name ?? "Unknown",
     [roster],
   );
+
+  // Read through a ref inside the socket effect: depending on nameFor there
+  // would tear down and rebuild the connection whenever the roster prop's
+  // identity changed, dropping the editor and chat for a re-render.
+  const nameForRef = useRef(nameFor);
+  useEffect(() => {
+    nameForRef.current = nameFor;
+  }, [nameFor]);
 
   const me = useMemo(
     () => roster.find((entry) => entry.userId === currentUserId),
@@ -231,27 +241,76 @@ export function InterviewRoom({
     nextProvider.socket.on("chat:history", handleChatHistory);
     nextProvider.socket.on("execution:result", handleExecutionResult);
 
-    // Advisory-only integrity signals — never blocks or auto-flags a
-    // candidate (PRD risk mitigation on anti-cheat).
-    const handleVisibility = () => {
-      if (document.hidden) {
-        nextProvider.socket.emit("integrity:signal", { interviewId, type: "TAB_BLUR" });
-      }
+    // Interviewers and observers see the candidate's signals as they happen,
+    // as a passing note rather than an alert — they are context, not verdicts.
+    const handleIntegritySignal = ({ userId, type, payload }: IntegritySignalEvent) => {
+      toast(`${nameForRef.current(userId)}: ${describeIntegritySignal(type, payload)}`);
     };
-    const handlePaste = () =>
-      nextProvider.socket.emit("integrity:signal", { interviewId, type: "PASTE" });
+    if (role !== "CANDIDATE") {
+      nextProvider.socket.on("integrity:signal", handleIntegritySignal);
+    }
 
-    document.addEventListener("visibilitychange", handleVisibility);
-    document.addEventListener("paste", handlePaste);
+    // Advisory-only integrity signals — never blocks or auto-flags a
+    // candidate (PRD risk mitigation on anti-cheat). Sent only about the
+    // candidate: an interviewer switching tabs to check notes, or pasting a
+    // starter snippet, is not something to put on the candidate's record.
+    const emitSignal = (type: IntegritySignalEvent["type"], payload?: { length: number }) =>
+      nextProvider.socket.emit("integrity:signal", { interviewId, type, payload });
+
+    const handleVisibility = () => {
+      if (document.hidden) emitSignal("TAB_BLUR");
+    };
+
+    // Only pastes into the shared editor. Pasting a link into chat is not a
+    // coding-integrity question. The length is read and sent; the text is not.
+    const handlePaste = (event: ClipboardEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target?.closest(".monaco-editor")) return;
+      emitSignal("PASTE", { length: event.clipboardData?.getData("text/plain").length ?? 0 });
+    };
+
+    // fullscreenchange fires on entering and on leaving; only leaving counts.
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) emitSignal("FULLSCREEN_EXIT");
+    };
+
+    const isCandidate = role === "CANDIDATE";
+    if (isCandidate) {
+      document.addEventListener("visibilitychange", handleVisibility);
+      document.addEventListener("paste", handlePaste);
+      document.addEventListener("fullscreenchange", handleFullscreenChange);
+    }
 
     return () => {
-      document.removeEventListener("visibilitychange", handleVisibility);
-      document.removeEventListener("paste", handlePaste);
+      if (isCandidate) {
+        document.removeEventListener("visibilitychange", handleVisibility);
+        document.removeEventListener("paste", handlePaste);
+        document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      }
       nextProvider.destroy();
       setProvider(null);
       setConnectedIds([]);
     };
-  }, [interviewId, token, currentUserId, me?.name]);
+  }, [interviewId, token, currentUserId, me?.name, role]);
+
+  // Tracked from fullscreenchange rather than read during render, since
+  // `document` doesn't exist on the server.
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    const sync = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      document.documentElement.requestFullscreen().catch(() => {
+        toast.error("Your browser didn't allow full screen.");
+      });
+    }
+  }
 
   function sendMessage(event: FormEvent) {
     event.preventDefault();
@@ -418,6 +477,9 @@ export function InterviewRoom({
               </Button>
             </>
           )}
+          <Button size="sm" variant="outline" onClick={toggleFullscreen}>
+            {fullscreen ? "Exit full screen" : "Full screen"}
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -427,6 +489,12 @@ export function InterviewRoom({
           </Button>
         </div>
       </header>
+
+      {role === "CANDIDATE" && (
+        <p className="shrink-0 rounded-lg border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
+          {INTEGRITY_DISCLOSURE.summary} {INTEGRITY_DISCLOSURE.detail}
+        </p>
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
         {/* Deliberately not a <Card>: its `overflow-hidden` and

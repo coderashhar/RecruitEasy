@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { InterviewStatus } from "@interviewhub/db";
 import { InterviewStatusActions } from "@/components/interview/interview-status-actions";
 import { RUBRIC_CRITERIA } from "@interviewhub/types";
+import { describeIntegritySignal } from "@/lib/integrity";
 import { getInterviewDetail } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
 import { FeedbackForm } from "./feedback-form";
@@ -19,8 +20,6 @@ const STATUS_VARIANT: Record<InterviewStatus, "default" | "secondary" | "outline
   NO_SHOW: "destructive",
 };
 
-// Advisory-only, per interview-room.tsx and the PRD's anti-cheat risk
-// mitigation — shown here as a plain log, never as a verdict on the candidate.
 const RECOMMENDATION_LABEL: Record<string, string> = {
   STRONG_YES: "Strong yes",
   YES: "Yes",
@@ -28,11 +27,6 @@ const RECOMMENDATION_LABEL: Record<string, string> = {
   STRONG_NO: "Strong no",
 };
 
-const INTEGRITY_SIGNAL_LABEL: Record<string, string> = {
-  TAB_BLUR: "Switched away from the tab",
-  PASTE: "Pasted into the editor",
-  FULLSCREEN_EXIT: "Exited fullscreen",
-};
 
 export default async function InterviewDetailPage({
   params,
@@ -175,7 +169,7 @@ export default async function InterviewDetailPage({
           <CardContent className="flex flex-col gap-1.5">
             {interview.integritySignals.map((signal) => (
               <div key={signal.id} className="flex items-center justify-between text-sm">
-                <span>{INTEGRITY_SIGNAL_LABEL[signal.type] ?? signal.type}</span>
+                <span>{describeIntegritySignal(signal.type, signal.payload)}</span>
                 <span className="text-muted-foreground">
                   {signal.occurredAt.toLocaleTimeString()}
                 </span>

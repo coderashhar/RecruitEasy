@@ -6,6 +6,7 @@ import {
   integritySignalSchema,
   executionBroadcastSchema,
   type ChatMessageEvent,
+  type IntegritySignalEvent,
 } from "@interviewhub/types";
 import { prisma, Prisma } from "@interviewhub/db";
 import { verifyInterviewToken } from "./auth.js";
@@ -36,6 +37,10 @@ const CHAT_HISTORY_LIMIT = 200;
 
 // Generous for a person typing, far below what a loop would send.
 const CHAT_LIMIT = { count: 20, windowMs: 10_000 };
+
+// A candidate alt-tabbing repeatedly produces a few a minute; past this it is
+// a loop, and every extra row only buries the real ones for the reviewer.
+const INTEGRITY_LIMIT = { count: 60, windowMs: 60_000 };
 
 function toChatEvent(row: { id: string; userId: string; body: string; createdAt: Date }): ChatMessageEvent {
   return { id: row.id, userId: row.userId, body: row.body, at: row.createdAt.getTime() };
@@ -169,11 +174,19 @@ io.on("connection", (socket: Socket<any, any, any, SocketData>) => {
     io.to(interviewId).emit("chat:message", message);
   });
 
+  const allowIntegritySignal = createSocketLimit(INTEGRITY_LIMIT.count, INTEGRITY_LIMIT.windowMs);
+
   // Advisory only — never blocks or auto-flags a candidate (see PRD risk
   // mitigation on anti-cheat, and IntegritySignal in the data model).
   socket.on("integrity:signal", (raw: unknown) => {
+    // Signals describe the candidate, so only the candidate's socket may
+    // record them. The client already sends them only from that role; this
+    // is the check that holds when a client doesn't — an interviewer pasting
+    // a starter snippet must not land on the candidate's review page.
+    if (role !== "CANDIDATE") return;
+
     const parsed = integritySignalSchema.safeParse(raw);
-    if (!parsed.success) return;
+    if (!parsed.success || !allowIntegritySignal()) return;
 
     prisma.integritySignal
       .create({
@@ -185,7 +198,12 @@ io.on("connection", (socket: Socket<any, any, any, SocketData>) => {
       })
       .catch((err) => console.error("[integrity] persist failed", err));
 
-    socket.to(interviewId).emit("integrity:signal", { userId, type: parsed.data.type });
+    const event: IntegritySignalEvent = {
+      userId,
+      type: parsed.data.type,
+      payload: parsed.data.payload,
+    };
+    socket.to(interviewId).emit("integrity:signal", event);
   });
 
   socket.on("disconnecting", () => {

@@ -324,4 +324,44 @@ describe("realtime server (integration, real DB + real sockets)", () => {
     candidate.socket.close();
     rejoined.socket.close();
   });
+
+  // Integrity signals describe the candidate. An interviewer's own tab
+  // switches or pastes must never land on the candidate's review page, even
+  // from a client that ignores the room's role check and sends them anyway.
+  test("only the candidate's integrity signals are recorded, and only with an allowed payload", async () => {
+    const interviewId = await createInterview();
+
+    const candidate = await connect(tokenFor(interviewId, candidateId, "CANDIDATE"));
+    const interviewer = await connect(tokenFor(interviewId, interviewerId, "INTERVIEWER"));
+    await Promise.all([candidate.next("chat:history"), interviewer.next("chat:history")]);
+
+    interviewer.socket.emit("integrity:signal", { interviewId, type: "PASTE", payload: { length: 5 } });
+    // Carries pasted text — the one thing the candidate is told is never kept.
+    candidate.socket.emit("integrity:signal", {
+      interviewId,
+      type: "PASTE",
+      payload: { length: 5, text: "hello" },
+    });
+    candidate.socket.emit("integrity:signal", { interviewId, type: "PASTE", payload: { length: 42 } });
+
+    const relayed = await interviewer.next("integrity:signal");
+    expect(relayed).toEqual({ userId: candidateId, type: "PASTE", payload: { length: 42 } });
+
+    // The persist is fire-and-forget; poll for it like waitForCodeDocument.
+    const deadline = Date.now() + 8_000;
+    let rows = await prisma.integritySignal.findMany({ where: { interviewId } });
+    while (rows.length === 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+      rows = await prisma.integritySignal.findMany({ where: { interviewId } });
+    }
+    // A beat longer, so a wrongly-accepted signal would have landed too.
+    await new Promise((r) => setTimeout(r, 300));
+    rows = await prisma.integritySignal.findMany({ where: { interviewId } });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ type: "PASTE", payload: { length: 42 } });
+
+    candidate.socket.close();
+    interviewer.socket.close();
+  });
 });

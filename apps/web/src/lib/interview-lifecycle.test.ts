@@ -227,6 +227,8 @@ describe("rescheduleInterview", () => {
         scheduledAt: rescheduleInput.scheduledAt,
         durationMins: rescheduleInput.durationMins,
         icsSequence: { increment: 1 },
+        reminder24hSentAt: null,
+        reminder1hSentAt: null,
       },
     });
     expect(sendInterviewInvites).toHaveBeenCalledWith("interview_1", "rescheduled");

@@ -213,6 +213,10 @@ model Interview {
   // an update or cancellation whose SEQUENCE is higher than the copy it holds,
   // so every reschedule and cancellation must bump this before sending.
   icsSequence   Int              @default(0)
+  // Set when each reminder is claimed by the cron run that sends it, which is
+  // what stops two overlapping runs from both emailing. Cleared on reschedule.
+  reminder24hSentAt DateTime?
+  reminder1hSentAt  DateTime?
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
@@ -225,6 +229,8 @@ model Interview {
   chatMessages  ChatMessage[]
 
   @@index([applicationId])
+  // The reminder sweep's range scan over upcoming SCHEDULED interviews.
+  @@index([status, scheduledAt])
   @@map("interviews")
 }
 

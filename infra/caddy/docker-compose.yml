@@ -29,6 +29,30 @@ services:
     networks:
       - interviewhub
 
+  # Triggers apps/web's scheduled jobs. The web app runs on Vercel, where the
+  # Hobby plan's cron fires at most once a day — far too coarse for a
+  # "starts in 1 hour" reminder — so this box, which is always on anyway,
+  # calls the route every 10 minutes instead. Each call is idempotent; a
+  # missed or doubled tick costs nothing.
+  #
+  # Set APP_URL (the deployed web app's origin) and CRON_SECRET (identical to
+  # apps/web's) in the environment docker compose reads, e.g. infra/caddy/.env.
+  cron:
+    image: curlimages/curl:8.10.1
+    restart: unless-stopped
+    environment:
+      APP_URL: ${APP_URL}
+      CRON_SECRET: ${CRON_SECRET}
+    entrypoint: ["/bin/sh", "-c"]
+    # $$ is compose's escape for a literal $, left for the container's shell.
+    command:
+      - |
+        while true; do
+          curl -fsS --max-time 60 -H "Authorization: Bearer $$CRON_SECRET" "$$APP_URL/api/cron/reminders" || echo "reminders tick failed"
+          echo
+          sleep 600
+        done
+
 networks:
   interviewhub:
     driver: bridge

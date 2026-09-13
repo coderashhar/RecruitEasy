@@ -137,6 +137,9 @@ export async function rescheduleInterview(
         // Without a higher SEQUENCE, calendars treat the new invite as stale
         // and leave the event at its old time.
         icsSequence: { increment: 1 },
+        // Reminders already sent were for the old time.
+        reminder24hSentAt: null,
+        reminder1hSentAt: null,
       },
     });
 

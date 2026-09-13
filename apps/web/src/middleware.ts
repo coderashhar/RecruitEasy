@@ -6,6 +6,9 @@ const isPublicRoute = createRouteMatcher([
   "/",
   "/sign-in(.*)",
   "/sign-up(.*)",
+  // Called by a scheduler, which has no Clerk session. Each route checks
+  // CRON_SECRET itself (lib/cron-auth.ts) and refuses everything without it.
+  "/api/cron(.*)",
 ]);
 
 const isRecruiterRoute = createRouteMatcher(["/recruiter(.*)"]);

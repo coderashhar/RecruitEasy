@@ -142,6 +142,14 @@ in-memory `Y.Doc` state per interview room — see ADR-002 in the plan.
 - **`apps/realtime` (+ [`infra/judge0`](infra/judge0)) → one small VPS**, reverse-proxied by
   [`infra/caddy`](infra/caddy). `apps/realtime/Dockerfile` builds the service; bring it up with
   `infra/caddy/docker-compose.yml`.
+- **Reminders.** That compose file also runs a `cron` service, which calls the web app's
+  `/api/cron/reminders` every 10 minutes (Vercel Hobby cron runs only once a day). Set `APP_URL`
+  and `CRON_SECRET` next to it, with `CRON_SECRET` identical to the one on Vercel. To trigger a
+  sweep by hand:
+
+  ```bash
+  curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/reminders
+  ```
 
 Full reasoning for these choices — including why LiveKit Cloud over self-hosting, and why R2 over
 S3 — is in the architecture plan.

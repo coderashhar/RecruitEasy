@@ -1,6 +1,6 @@
 import "server-only";
 
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 const r2 =
   process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY
@@ -47,5 +47,24 @@ export async function uploadFile(
   } catch (err) {
     console.error("[storage] Upload failed:", err);
     throw new StorageError("Failed to upload file.");
+  }
+}
+
+/**
+ * Reads a stored file back, or null when R2 isn't configured or the object is
+ * missing. Callers authorize first: this has no notion of who may read what.
+ */
+export async function downloadFile(
+  key: string,
+): Promise<{ body: Uint8Array } | null> {
+  if (!r2) return null;
+
+  try {
+    const object = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+    if (!object.Body) return null;
+    return { body: await object.Body.transformToByteArray() };
+  } catch (err) {
+    console.error("[storage] Download failed:", err);
+    return null;
   }
 }

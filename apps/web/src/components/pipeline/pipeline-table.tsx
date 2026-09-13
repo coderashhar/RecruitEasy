@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -206,7 +207,11 @@ export function PipelineTable({ rows: initial }: { rows: PipelineRow[] }) {
                     aria-label={`Select ${row.candidateName}`}
                   />
                 </TableCell>
-                <TableCell className="font-medium">{row.candidateName}</TableCell>
+                <TableCell className="font-medium">
+                  <Link href={`/recruiter/candidates/${row.applicationId}`} className="hover:underline">
+                    {row.candidateName}
+                  </Link>
+                </TableCell>
                 <TableCell>{row.jobTitle}</TableCell>
                 <TableCell>
                   <ApplicationStatusSelect

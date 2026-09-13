@@ -3,19 +3,25 @@ import "server-only";
 import jwt from "jsonwebtoken";
 import type { InterviewParticipantRole } from "@interviewhub/db";
 
+/**
+ * Long enough to outlast the scheduled slot plus an interview that runs over.
+ * Shared by the room page's initial token, its LiveKit token, and the refresh
+ * a reconnecting client asks for, so all three agree on how long a session is.
+ */
+export function interviewTokenLifetimeSeconds(durationMins: number): number {
+  const GRACE_PERIOD_MINUTES = 30;
+  return (durationMins + GRACE_PERIOD_MINUTES) * 60;
+}
+
 export interface MintInterviewTokenInput {
   interviewId: string;
   userId: string;
   role: InterviewParticipantRole;
   /**
-   * There's deliberately no client-callable token endpoint (see
-   * interview-access.ts), and Socket.IO's auto-reconnect resends this same
-   * token verbatim on every reconnect attempt — so a token that expires
-   * before the interview's actual scheduled end would silently stop syncing
-   * on the very first network blip past that point, with no refresh path to
-   * recover. The caller must size this to the real session length (the
-   * interview's own durationMins, not a flat guess), so pick a duration this
-   * interview could plausibly still be live for.
+   * Socket.IO's auto-reconnect resends the same token verbatim, and a
+   * rejected token is only replaced when the client asks for a fresh one
+   * (refreshInterviewToken, which re-runs the participant check). Size this
+   * with interviewTokenLifetimeSeconds so a normal interview never needs to.
    */
   expiresInSeconds: number;
 }

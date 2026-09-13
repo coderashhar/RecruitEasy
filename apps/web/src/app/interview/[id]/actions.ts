@@ -2,6 +2,8 @@
 
 import { executeRequestSchema } from "@interviewhub/types";
 import { ExecutionError, getExecutionForParticipant, submitExecution } from "@/lib/execution";
+import { authorizeInterviewAccess } from "@/lib/interview-access";
+import { interviewTokenLifetimeSeconds, mintInterviewToken } from "@/lib/interview-token";
 import { ROLES } from "@/lib/roles";
 import { getCurrentUser, requireCurrentUser } from "@/lib/users";
 
@@ -48,4 +50,30 @@ export async function getExecutionResult(interviewId: string, executionId: strin
   if (!user) return null;
 
   return getExecutionForParticipant(user.id, interviewId, executionId);
+}
+
+/**
+ * A fresh realtime join token for a client whose old one was rejected on
+ * reconnect — typically an interview that ran well past its slot, or a laptop
+ * that slept through the token's expiry.
+ *
+ * Re-runs the same participant check the room page does, so this can never
+ * mint a token for an interview the caller isn't in: it is the page's own
+ * authorization decision made again, not a way around it. Returns null
+ * (rather than redirecting) for the same reason getExecutionResult does —
+ * it's called from a socket callback with no navigation to perform.
+ */
+export async function refreshInterviewToken(interviewId: string): Promise<string | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  const access = await authorizeInterviewAccess(interviewId, user.id);
+  if (!access) return null;
+
+  return mintInterviewToken({
+    interviewId: access.interview.id,
+    userId: user.id,
+    role: access.participantRole,
+    expiresInSeconds: interviewTokenLifetimeSeconds(access.interview.durationMins),
+  });
 }

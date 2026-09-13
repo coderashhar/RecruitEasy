@@ -30,9 +30,10 @@ export interface InterviewAccess {
  *
  * apps/realtime/src/auth.ts's verifyInterviewToken only proves a token was
  * signed by us — it says nothing about whether the bearer belongs in this
- * particular room. That check has to happen here, once, before a token for
- * this interview is ever minted; there is deliberately no client-callable
- * token endpoint that could be asked for a token to someone else's interview.
+ * particular room. That check has to happen here, before a token for this
+ * interview is ever minted — by the room page, and again by
+ * refreshInterviewToken on reconnect. Nothing mints a join token without it,
+ * so no caller can obtain one for someone else's interview.
  *
  * Returns null — not a thrown error — for "not a participant", so the caller
  * can 404 rather than reveal whether the interview exists at all.

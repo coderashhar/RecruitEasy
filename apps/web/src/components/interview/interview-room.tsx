@@ -23,7 +23,11 @@ import {
   type SupportedLanguage,
 } from "@interviewhub/types";
 import type { RosterEntry } from "@/lib/interview-access";
-import { getExecutionResult, runCode } from "@/app/interview/[id]/actions";
+import {
+  getExecutionResult,
+  refreshInterviewToken,
+  runCode,
+} from "@/app/interview/[id]/actions";
 import { SocketYjsProvider, type ConnectionStatus } from "./socket-yjs-provider";
 
 // Monaco measures the DOM and touches `window` on load, so it cannot be
@@ -183,6 +187,7 @@ export function InterviewRoom({
       token,
       identity: { userId: currentUserId, name: me?.name ?? "Unknown" },
       onStatus: setConnection,
+      refreshToken: () => refreshInterviewToken(interviewId),
     });
 
     // Revealed once the socket actually connects, not the instant it's

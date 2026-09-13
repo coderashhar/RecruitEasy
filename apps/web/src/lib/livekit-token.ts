@@ -30,10 +30,10 @@ export interface MintVideoTokenInput {
   userId: string;
   displayName: string;
   /**
-   * Sized by the caller from the interview's own duration, for the same
-   * reason the realtime join token is: there is no refresh endpoint, so a
-   * token that expires mid-interview drops someone out of the call with no
-   * way back in short of a reload.
+   * Sized by the caller with interviewTokenLifetimeSeconds. Unlike the
+   * realtime join token, nothing refreshes this one, so a token that expires
+   * mid-interview drops someone out of the call with no way back in short of
+   * a reload.
    */
   expiresInSeconds: number;
 }

@@ -208,7 +208,7 @@ export function PracticeWorkspace({ problems, initialRemaining, runLimit }: Prac
           </div>
         </div>
 
-        <div className="h-[420px] min-h-0">
+        <div className="h-[420px] min-h-0 bg-well">
           <PracticeEditor value={code} language={language} onChange={handleCodeChange} />
         </div>
 

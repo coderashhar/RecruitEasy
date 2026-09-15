@@ -45,7 +45,7 @@ export function PolishButton({ applicationId }: { applicationId: string }) {
                 <div className="font-medium text-primary">{suggestion.section}</div>
                 <div className="space-y-1">
                   <div className="text-muted-foreground line-through">{suggestion.original}</div>
-                  <div className="text-emerald-700 dark:text-emerald-400">{suggestion.suggestion}</div>
+                  <div className="text-success">{suggestion.suggestion}</div>
                 </div>
                 <p className="text-xs text-muted-foreground">{suggestion.reason}</p>
               </div>

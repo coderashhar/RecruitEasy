@@ -1,10 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ApplicationStatus, FeedbackRecommendation, InterviewStatus } from "@interviewhub/db";
+import type { ApplicationStatus } from "@interviewhub/db";
 import { RUBRIC_CRITERIA } from "@interviewhub/types";
+import { LocalTime } from "@/components/broadsheet/local-time";
+import { StatMeasure, StatRow } from "@/components/broadsheet/measures";
+import { PageHeader, SectionLabel } from "@/components/broadsheet/section";
+import {
+  ApplicationStatusBadge,
+  InterviewStatusBadge,
+  RECOMMENDATION,
+  RECOMMENDATION_ORDER,
+  RecommendationBadge,
+} from "@/components/broadsheet/status-badge";
+import { Button } from "@/components/ui/button";
 import { ApplicationStatusSelect } from "@/components/pipeline/application-status-select";
 import { ShortlistToggle } from "@/components/pipeline/shortlist-toggle";
 import { getApplicationProfile } from "@/lib/candidate-profile";
@@ -12,20 +20,7 @@ import { requireCurrentUser } from "@/lib/users";
 
 const ALL_STATUSES: ApplicationStatus[] = ["APPLIED", "SCREENING", "INTERVIEWING", "OFFER", "HIRED", "REJECTED"];
 
-const INTERVIEW_STATUS_VARIANT: Record<InterviewStatus, "default" | "secondary" | "outline" | "destructive"> = {
-  SCHEDULED: "outline",
-  IN_PROGRESS: "default",
-  COMPLETED: "secondary",
-  CANCELLED: "destructive",
-  NO_SHOW: "destructive",
-};
-
-const RECOMMENDATION_LABEL: Record<FeedbackRecommendation, string> = {
-  STRONG_YES: "Strong yes",
-  YES: "Yes",
-  NO: "No",
-  STRONG_NO: "Strong no",
-};
+const SKILL_GROUP_LABEL = { matched: "Matched", partial: "Partial", missing: "Missing" } as const;
 
 export default async function CandidateProfilePage({
   params,
@@ -49,35 +44,37 @@ export default async function CandidateProfilePage({
   const { feedbackSummary } = profile;
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-4">
-      <Card>
-        <CardHeader className="flex-row flex-wrap items-start justify-between gap-3 space-y-0">
-          <div className="min-w-0">
-            <CardTitle className="flex items-center gap-1 text-lg">
-              {canManage && (
-                <ShortlistToggle
-                  applicationId={profile.id}
-                  candidateName={profile.candidate.name}
-                  shortlisted={profile.shortlistedAt !== null}
-                />
-              )}
-              {profile.candidate.name}
-              {!canManage && profile.shortlistedAt && <Badge variant="secondary">Shortlisted</Badge>}
-            </CardTitle>
-            <CardDescription>
-              {profile.job.title} · {profile.candidate.email} · applied{" "}
-              {profile.createdAt.toLocaleDateString(undefined, { dateStyle: "medium" })}
-            </CardDescription>
-          </div>
-          <div className="flex items-center gap-2">
+    <div className="flex max-w-[1040px] flex-col">
+      <PageHeader
+        eyebrow={profile.job.title}
+        title={
+          <span className="inline-flex items-center gap-1">
+            {canManage ? (
+              <ShortlistToggle
+                applicationId={profile.id}
+                candidateName={profile.candidate.name}
+                shortlisted={profile.shortlistedAt !== null}
+              />
+            ) : (
+              profile.shortlistedAt && <span className="text-primary">★</span>
+            )}
+            {profile.candidate.name}
+          </span>
+        }
+        description={
+          <>
+            {profile.candidate.email} · applied <LocalTime value={profile.createdAt} format="date" />
+          </>
+        }
+        actions={
+          <>
             {resume && (
               <Button
-                size="sm"
                 variant="outline"
                 nativeButton={false}
                 render={
                   <a href={`/recruiter/candidates/${profile.id}/resume`} target="_blank" rel="noreferrer">
-                    Resume
+                    Résumé
                   </a>
                 }
               />
@@ -85,134 +82,136 @@ export default async function CandidateProfilePage({
             {canManage ? (
               <ApplicationStatusSelect applicationId={profile.id} status={profile.status} statuses={ALL_STATUSES} />
             ) : (
-              <Badge variant="outline">{profile.status}</Badge>
+              <ApplicationStatusBadge status={profile.status} />
             )}
-          </div>
-        </CardHeader>
-      </Card>
+            {canManage && (
+              <Button
+                nativeButton={false}
+                render={<Link href={`/recruiter/schedule?applicationId=${profile.id}&round=${profile.interviews.length + 1}`}>Schedule interview</Link>}
+              />
+            )}
+          </>
+        }
+      />
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-baseline justify-between text-base">
-              <span>ATS match</span>
-              {report && <span className="text-2xl font-semibold tabular-nums">{report.score}/100</span>}
-            </CardTitle>
-            <CardDescription>
-              {report
-                ? `Scored by ${report.source === "LLM" ? "AI" : "keyword analysis"} against the job's required skills.`
-                : resume
-                  ? "The resume is still being scored."
-                  : "No resume on file."}
-            </CardDescription>
-          </CardHeader>
-          {skillsMatch && (
-            <CardContent className="flex flex-col gap-3 text-sm">
-              {(["matched", "partial", "missing"] as const).map((group) =>
-                skillsMatch[group].length > 0 ? (
-                  <div key={group}>
-                    <div className="mb-1 text-xs font-medium capitalize text-muted-foreground">{group}</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {skillsMatch[group].map((skill) => (
-                        <Badge key={skill} variant={group === "missing" ? "outline" : "secondary"}>
-                          {skill}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                ) : null,
-              )}
-            </CardContent>
-          )}
-        </Card>
+      <StatRow className="mt-7">
+        <StatMeasure
+          label="ATS match"
+          value={report ? report.score : "—"}
+          muted={!report}
+          detail={
+            report
+              ? `out of 100 · scored by ${report.source === "LLM" ? "AI" : "keyword analysis"}`
+              : resume
+                ? "The résumé is still being scored"
+                : "No résumé on file"
+          }
+        />
+        <StatMeasure
+          label="Feedback"
+          value={feedbackSummary.count}
+          detail={feedbackSummary.count === 0 ? "No submissions yet" : "submissions, averaged across every round"}
+        />
+        <StatMeasure
+          label="Interviews"
+          value={profile.interviews.length}
+          detail={`${profile.interviews.filter((interview) => interview.status === "COMPLETED").length} completed`}
+        />
+      </StatRow>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Interviewer feedback</CardTitle>
-            <CardDescription>
-              {feedbackSummary.count === 0
-                ? "No feedback submitted yet."
-                : `Averaged across ${feedbackSummary.count} submission${feedbackSummary.count === 1 ? "" : "s"} from every round.`}
-            </CardDescription>
-          </CardHeader>
-          {feedbackSummary.count > 0 && (
-            <CardContent className="flex flex-col gap-4 text-sm">
-              <div className="flex flex-col gap-2">
-                {RUBRIC_CRITERIA.map(({ key, label }) => {
-                  const average = feedbackSummary.averages[key];
-                  return (
-                    <div key={key} className="grid grid-cols-[8rem_1fr_2.5rem] items-center gap-3">
-                      <span className="text-muted-foreground">{label}</span>
-                      <div className="h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-                        <div
-                          className="h-full rounded-full bg-primary"
-                          style={{ width: `${((average ?? 0) / 5) * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-right tabular-nums">{average ?? "—"}/5</span>
-                    </div>
-                  );
-                })}
+      <div className="mt-9 grid items-start gap-12 md:grid-cols-2">
+        <section aria-labelledby="skills">
+          <SectionLabel id="skills">Skills against the job</SectionLabel>
+          {!skillsMatch ? (
+            <p className="py-4 text-sm text-muted-foreground">No breakdown yet.</p>
+          ) : (
+            (["matched", "partial", "missing"] as const).map((group) => (
+              <div key={group} className="grid grid-cols-[88px_minmax(0,1fr)] gap-4 border-b border-hairline py-3 text-[13.5px] last:border-b-0">
+                <span className="font-mono text-[11px] tracking-[0.1em] text-muted-foreground uppercase">
+                  {SKILL_GROUP_LABEL[group]}
+                </span>
+                <span className={group === "missing" ? "text-muted-foreground" : ""}>
+                  {skillsMatch[group].length > 0 ? skillsMatch[group].join(", ") : "—"}
+                </span>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {(Object.keys(RECOMMENDATION_LABEL) as FeedbackRecommendation[])
+            ))
+          )}
+        </section>
+
+        <section aria-labelledby="rubric">
+          <SectionLabel id="rubric" aside={feedbackSummary.count > 0 ? "average of 5" : undefined}>
+            Interviewer feedback
+          </SectionLabel>
+          {feedbackSummary.count === 0 ? (
+            <p className="py-4 text-sm text-muted-foreground">No feedback submitted yet.</p>
+          ) : (
+            <>
+              {RUBRIC_CRITERIA.map(({ key, label }) => {
+                const average = feedbackSummary.averages[key];
+                return (
+                  <div key={key} className="grid grid-cols-[120px_1fr_48px] items-center gap-3.5 border-b border-hairline py-[9px] text-[13.5px]">
+                    <span>{label}</span>
+                    <span className="block h-[9px] bg-hairline" aria-hidden="true">
+                      {average !== null && (
+                        <span className="block h-[9px] bg-foreground" style={{ width: `${(average / 5) * 100}%` }} />
+                      )}
+                    </span>
+                    <span className="text-right font-mono tabular-nums">{average ?? "—"}</span>
+                  </div>
+                );
+              })}
+              <div className="mt-3.5 flex flex-wrap gap-1.5">
+                {[...RECOMMENDATION_ORDER]
+                  .reverse()
                   .filter((key) => feedbackSummary.recommendations[key] > 0)
                   .map((key) => (
-                    <Badge key={key} variant={key === "NO" || key === "STRONG_NO" ? "outline" : "secondary"}>
-                      {RECOMMENDATION_LABEL[key]} × {feedbackSummary.recommendations[key]}
-                    </Badge>
+                    <RecommendationBadge key={key} recommendation={key}>
+                      {feedbackSummary.recommendations[key]} × {RECOMMENDATION[key].label}
+                    </RecommendationBadge>
                   ))}
               </div>
-            </CardContent>
+            </>
           )}
-        </Card>
+        </section>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Interviews</CardTitle>
-          <CardDescription>
-            {profile.interviews.length === 0 ? "No interviews scheduled yet." : undefined}
-          </CardDescription>
-        </CardHeader>
-        {profile.interviews.length > 0 && (
-          <CardContent className="flex flex-col gap-3">
-            {profile.interviews.map((interview) => (
-              <div key={interview.id} className="flex flex-col gap-2 rounded-md border p-3 text-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">Round {interview.round}</span>
-                    <Badge variant={INTERVIEW_STATUS_VARIANT[interview.status]}>{interview.status}</Badge>
-                  </div>
-                  <Link href={`/recruiter/interviews/${interview.id}`} className="text-primary hover:underline">
-                    Details
+      <section aria-labelledby="interviews" className="mt-10">
+        <SectionLabel id="interviews">Interviews</SectionLabel>
+        {profile.interviews.length === 0 ? (
+          <p className="py-4 text-sm text-muted-foreground">No interviews scheduled yet.</p>
+        ) : (
+          profile.interviews.map((interview) => (
+            <article key={interview.id} className="border-b border-hairline py-4 last:border-b-0">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <Link href={`/recruiter/interviews/${interview.id}`} className="text-[14.5px] font-semibold hover:underline">
+                    Round {interview.round}
                   </Link>
+                  <InterviewStatusBadge status={interview.status} />
                 </div>
-                <div className="text-muted-foreground">
-                  {interview.scheduledAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })} ·{" "}
-                  {interview.durationMins} min · with{" "}
-                  {interview.participants.map((participant) => participant.user.name).join(", ") || "no interviewer"}
-                  {interview._count.integritySignals > 0 &&
-                    ` · ${interview._count.integritySignals} integrity signal${interview._count.integritySignals === 1 ? "" : "s"}`}
-                </div>
-                {interview.feedback.length > 0 && (
-                  <ul className="flex flex-col gap-1">
-                    {interview.feedback.map((entry) => (
-                      <li key={entry.id} className="flex flex-wrap items-baseline gap-2">
-                        <span>{entry.interviewer.name}</span>
-                        <Badge variant="secondary">{RECOMMENDATION_LABEL[entry.recommendation]}</Badge>
-                        {entry.notes && (
-                          <span className="min-w-0 truncate text-muted-foreground">{entry.notes}</span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <LocalTime value={interview.scheduledAt} format="weekdayTime" className="font-mono text-[12.5px] text-muted-foreground" />
               </div>
-            ))}
-          </CardContent>
+              <div className="mt-1.5 text-[13px] text-muted-foreground">
+                {interview.durationMins} min · with{" "}
+                {interview.participants.map((participant) => participant.user.name).join(", ") || "no interviewer"}
+                {interview._count.integritySignals > 0 &&
+                  ` · ${interview._count.integritySignals} integrity signal${interview._count.integritySignals === 1 ? "" : "s"}`}
+              </div>
+              {interview.feedback.length > 0 && (
+                <ul className="mt-2.5 flex flex-col gap-1.5">
+                  {interview.feedback.map((entry) => (
+                    <li key={entry.id} className="flex flex-wrap items-center gap-2.5 text-[13.5px]">
+                      <span>{entry.interviewer.name}</span>
+                      <RecommendationBadge recommendation={entry.recommendation} />
+                      {entry.notes && <span className="min-w-0 flex-1 truncate text-muted-foreground">{entry.notes}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </article>
+          ))
         )}
-      </Card>
+      </section>
     </div>
   );
 }

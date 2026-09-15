@@ -8,7 +8,7 @@ export async function requestMyDataDeletion(): Promise<{ error?: string }> {
   const { user, role } = await requireCurrentUser(["CANDIDATE"]);
   try {
     await requestDataDeletion({ id: user.id, orgId: user.orgId, role });
-    revalidatePath("/candidate");
+    revalidatePath("/candidate", "layout");
     return {};
   } catch (err) {
     if (err instanceof DataDeletionError) return { error: err.message };

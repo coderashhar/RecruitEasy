@@ -51,7 +51,7 @@ export default async function InterviewPage({
   return (
     // Full-bleed, not a centred reading column: this is a tool being operated,
     // and the code under discussion should get the screen it needs.
-    <div className="p-4">
+    <>
       <InterviewRoom
         interviewId={access.interview.id}
         token={token}
@@ -68,6 +68,6 @@ export default async function InterviewPage({
         recordingAvailable={videoToken !== null && isRecordingConfigured()}
         initialRecordingState={await getRoomRecordingState(access.interview.id)}
       />
-    </div>
+    </>
   );
 }

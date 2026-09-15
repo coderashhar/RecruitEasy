@@ -2,17 +2,17 @@
 
 import { useTransition } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogEyebrow,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { requestMyDataDeletion } from "@/app/candidate/privacy-actions";
 
 export function RequestDeletionButton() {
@@ -27,23 +27,22 @@ export function RequestDeletionButton() {
   }
 
   return (
-    <Dialog>
-      <DialogTrigger render={<Button size="sm" variant="outline" />}>Request deletion of my data</DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Delete your data?</DialogTitle>
-          <DialogDescription>
-            Once an administrator approves it, your account, applications, resumes, ATS reports, interview
-            recordings, code and chat are permanently deleted, and you&apos;ll be signed out. This can&apos;t be undone.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>Keep my data</DialogClose>
-          <DialogClose render={<Button variant="destructive" onClick={handleConfirm} disabled={pending} />}>
+    <AlertDialog>
+      <AlertDialogTrigger render={<Button variant="outline" />}>Request deletion of my data</AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogEyebrow>Request · reviewed by an administrator</AlertDialogEyebrow>
+        <AlertDialogTitle>Delete your data?</AlertDialogTitle>
+        <AlertDialogDescription>
+          Once an administrator approves it, your account, applications, résumés, ATS reports, interview recordings,
+          code and chat are permanently deleted, and you&apos;ll be signed out. This can&apos;t be undone.
+        </AlertDialogDescription>
+        <AlertDialogFooter note="You can keep using InterviewHub until then">
+          <AlertDialogClose render={<Button variant="outline" />}>Keep my data</AlertDialogClose>
+          <AlertDialogClose render={<Button variant="destructive" onClick={handleConfirm} disabled={pending} />}>
             Send request
-          </DialogClose>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </AlertDialogClose>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

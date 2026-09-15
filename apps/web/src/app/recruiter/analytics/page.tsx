@@ -1,34 +1,17 @@
 import Link from "next/link";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { BarList, WeeklyColumns } from "@/components/analytics/charts";
+import { StatMeasure, StatRow } from "@/components/broadsheet/measures";
+import { SectionLabel, PageHeader } from "@/components/broadsheet/section";
+import { APPLICATION_STATUS, StatusBadge, StatusGlyph } from "@/components/broadsheet/status-badge";
 import { ANALYTICS_RANGES, getOrgAnalytics, parseRange } from "@/lib/analytics";
 import { requireCurrentUser } from "@/lib/users";
+import { cn } from "@/lib/utils";
 
-const STATUS_LABEL: Record<string, string> = {
-  APPLIED: "Applied",
-  SCREENING: "Screening",
-  INTERVIEWING: "Interviewing",
-  OFFER: "Offer",
-  HIRED: "Hired",
-  REJECTED: "Rejected",
-};
+const rangeLabel = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
+const rangeLabelYear = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
-function Stat({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return (
-    <div className="flex flex-col gap-1 rounded-lg border bg-card p-4">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <span className="text-3xl font-semibold tabular-nums tracking-tight">{value}</span>
-      <span className="text-xs text-muted-foreground">{detail}</span>
-    </div>
-  );
+function plural(count: number, one: string, many = `${one}s`) {
+  return `${count} ${count === 1 ? one : many}`;
 }
 
 export default async function AnalyticsPage({
@@ -43,158 +26,231 @@ export default async function AnalyticsPage({
   const { interviews } = analytics;
 
   const rate = interviews.completionRate;
+  const applicationsTotal = analytics.applicationsPerWeek.reduce((sum, week) => sum + week.count, 0);
+  const applicationsPeak = Math.max(0, ...analytics.applicationsPerWeek.map((week) => week.count));
+  const hiresPeak = Math.max(0, ...analytics.hiresPerWeek.map((week) => week.count));
+  const allTime = analytics.funnel.reduce((sum, step) => sum + step.count, 0);
+  const jobsWithApplications = analytics.atsByJob.filter((job) => job.applications > 0).length;
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Hiring analytics</h1>
-          <p className="text-sm text-muted-foreground">
-            Last {range} days, through today. The pipeline and ATS figures are as of now.
-          </p>
-        </div>
-        <nav aria-label="Date range" className="flex rounded-md border p-0.5 text-sm">
-          {ANALYTICS_RANGES.map((option) => (
-            <Link
-              key={option}
-              href={`/recruiter/analytics?range=${option}`}
-              aria-current={option === range ? "page" : undefined}
-              className={`rounded px-3 py-1 ${option === range ? "bg-muted font-medium" : "text-muted-foreground hover:text-foreground"}`}
-            >
-              {option} days
-            </Link>
-          ))}
-        </nav>
-      </div>
+    <div className="flex flex-col">
+      <PageHeader
+        title="Hiring analytics"
+        description={`${rangeLabel.format(analytics.from)} – ${rangeLabelYear.format(analytics.to)} · pipeline and ATS figures are as of now`}
+        actions={
+          <nav aria-label="Date range" className="flex border border-input">
+            {ANALYTICS_RANGES.map((option) => (
+              <Link
+                key={option}
+                href={`/recruiter/analytics?range=${option}`}
+                aria-current={option === range ? "page" : undefined}
+                className={cn(
+                  "inline-flex h-8 items-center px-3.5 text-[13.5px]",
+                  option === range
+                    ? "bg-foreground font-semibold text-background"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {option} days
+              </Link>
+            ))}
+          </nav>
+        }
+      />
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Stat
+      <StatRow className="mt-7">
+        <StatMeasure
           label="Interview completion"
           value={rate === null ? "—" : `${Math.round(rate * 100)}%`}
+          muted={rate === null}
           detail={
-            rate === null
-              ? "No interview outcomes recorded yet."
-              : `${interviews.counts.COMPLETED ?? 0} completed · ${interviews.counts.NO_SHOW ?? 0} no-show · ${interviews.counts.CANCELLED ?? 0} cancelled`
+            rate === null ? (
+              "Nothing marked completed, no-show or cancelled yet"
+            ) : (
+              <span className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
+                <span className="inline-flex items-center gap-1.5">
+                  <StatusGlyph shape="square" tone="success" />
+                  {interviews.counts.COMPLETED ?? 0} completed
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <StatusGlyph shape="dot" tone="warning" />
+                  {interviews.counts.NO_SHOW ?? 0} no-show
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <StatusGlyph shape="bar" tone="danger" />
+                  {interviews.counts.CANCELLED ?? 0} cancelled
+                </span>
+              </span>
+            )
+          }
+          caveat={
+            interviews.unrecorded > 0 ? (
+              <>
+                {plural(interviews.unrecorded, "interview")} {interviews.unrecorded === 1 ? "is" : "are"} past{" "}
+                {interviews.unrecorded === 1 ? "its" : "their"} slot but still scheduled or in progress, so{" "}
+                {interviews.unrecorded === 1 ? "it is" : "they are"} excluded.{" "}
+                <Link href="/recruiter/interviews" className="text-primary hover:underline">
+                  Resolve {interviews.unrecorded === 1 ? "it" : "them"}
+                </Link>
+              </>
+            ) : rate === null ? (
+              "An em dash, never 0%: a rate would be a claim the data cannot make."
+            ) : undefined
           }
         />
-        <Stat
+        <StatMeasure
           label="Hires"
-          value={String(analytics.hires)}
-          detail={`Moved to Hired in the last ${range} days.`}
+          value={analytics.hires}
+          detail={`Moved to Hired in the last ${range} days`}
+          caveat="Counted from the audit trail, so it is when the move happened — not where applications sit now."
         />
-        <Stat
+        <StatMeasure
           label="Active applications"
-          value={String(analytics.activeApplications)}
-          detail="Not yet hired or rejected."
+          value={analytics.activeApplications}
+          detail={`Not yet hired or rejected · across ${plural(jobsWithApplications, "job")}`}
+          caveat={`Current state, not range-limited. Unaffected by the ${ANALYTICS_RANGES.join("/")} switch.`}
         />
+      </StatRow>
+
+      <div className="mt-8 grid gap-12 lg:grid-cols-2">
+        <section aria-labelledby="applications-weekly">
+          <SectionLabel id="applications-weekly" aside={`${applicationsTotal} total · peak ${applicationsPeak} · UTC`}>
+            New applications per week
+          </SectionLabel>
+          <WeeklyColumns weeks={analytics.applicationsPerWeek} label="New applications per week" unit="applications" />
+          <p className="mt-2.5 text-[13px] leading-relaxed text-muted-foreground">
+            Every week in range is drawn, including empty ones, so a quiet week reads as quiet rather than disappearing.
+          </p>
+        </section>
+        <section aria-labelledby="hires-weekly">
+          <SectionLabel id="hires-weekly" aside={`${analytics.hires} total · peak ${hiresPeak} · UTC`}>
+            Hires per week
+          </SectionLabel>
+          <WeeklyColumns weeks={analytics.hiresPerWeek} label="Hires per week" unit="hires" />
+          <p className="mt-2.5 text-[13px] leading-relaxed text-muted-foreground">
+            A zero week keeps its baseline rule and its label, so the gap is legible as a real zero.
+          </p>
+        </section>
       </div>
 
-      {interviews.unrecorded > 0 && (
-        <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-          {interviews.unrecorded} interview{interviews.unrecorded === 1 ? " is" : "s are"} past {interviews.unrecorded === 1 ? "its" : "their"} slot but
-          still marked scheduled or in progress, so {interviews.unrecorded === 1 ? "it isn't" : "they aren't"} counted in the completion rate. Mark{" "}
-          {interviews.unrecorded === 1 ? "it" : "them"} completed, no-show or cancelled to include {interviews.unrecorded === 1 ? "it" : "them"}.
-        </p>
-      )}
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">New applications</CardTitle>
-            <CardDescription>
-              {analytics.applicationsPerWeek.reduce((sum, week) => sum + week.count, 0)} in the last {range} days.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <WeeklyColumns weeks={analytics.applicationsPerWeek} label="New applications per week" unit="applications" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Hires</CardTitle>
-            <CardDescription>Applications moved to Hired, by the week it happened.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <WeeklyColumns weeks={analytics.hiresPerWeek} label="Hires per week" unit="hires" />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Pipeline now</CardTitle>
-            <CardDescription>Every application in the organisation, by current status.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <BarList
-              label="Applications by status"
-              items={analytics.funnel.map((step) => ({
+      <div className="mt-8 grid gap-12 lg:grid-cols-2">
+        <section aria-labelledby="by-status">
+          <SectionLabel id="by-status" aside={`all time · ${allTime}`}>
+            Applications by current status
+          </SectionLabel>
+          <BarList
+            label="Applications by status"
+            items={analytics.funnel.map((step) => {
+              const display = APPLICATION_STATUS[step.status];
+              return {
                 key: step.status,
-                label: STATUS_LABEL[step.status],
+                label: (
+                  <span className="inline-flex items-center gap-2">
+                    <StatusGlyph shape={display.shape} tone={display.tone} />
+                    {display.label}
+                  </span>
+                ),
                 value: step.count,
-              }))}
-            />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">ATS score by job</CardTitle>
-            <CardDescription>Average of each application&apos;s latest score, out of 100.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {analytics.atsByJob.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No jobs posted yet.</p>
-            ) : (
+              };
+            })}
+          />
+          <p className="mt-3 text-[13px] leading-relaxed text-muted-foreground">
+            Not a funnel: Rejected is a terminal state, not a later stage, so these don&apos;t describe a conversion.
+          </p>
+        </section>
+        <section aria-labelledby="ats-by-job">
+          <SectionLabel id="ats-by-job" aside="out of 100 · latest score each">
+            Average ATS score by job
+          </SectionLabel>
+          {analytics.atsByJob.length === 0 ? (
+            <p className="py-4 text-sm text-muted-foreground">
+              No jobs posted yet.{" "}
+              <Link href="/recruiter/jobs/new" className="text-primary hover:underline">
+                Post the first job
+              </Link>
+            </p>
+          ) : (
+            <>
               <BarList
                 label="Average ATS score by job"
                 max={100}
+                labelWidth={150}
                 items={analytics.atsByJob.map((job) => ({
                   key: job.jobId,
                   label: job.title,
                   value: job.averageScore,
-                  note: `${job.scored}/${job.applications} scored`,
+                  note: `${job.scored}/${job.applications}`,
                 }))}
               />
-            )}
-          </CardContent>
-        </Card>
+              <p className="mt-3 text-[13px] leading-relaxed text-muted-foreground">
+                The scored-of-total count sits beside every average, because an 81 from 11 résumés and an 81 from 2 are
+                not the same claim.
+              </p>
+            </>
+          )}
+        </section>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Interviewers</CardTitle>
-          <CardDescription>
-            Interviews scheduled in the last {range} days. Feedback counts only completed interviews.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {analytics.interviewers.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No interviews in this range.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Interviewer</TableHead>
-                  <TableHead className="text-right">Scheduled</TableHead>
-                  <TableHead className="text-right">Completed</TableHead>
-                  <TableHead className="text-right">Feedback given</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {analytics.interviewers.map((interviewer) => (
-                  <TableRow key={interviewer.name}>
-                    <TableCell className="font-medium">{interviewer.name}</TableCell>
-                    <TableCell className="text-right tabular-nums">{interviewer.scheduled}</TableCell>
-                    <TableCell className="text-right tabular-nums">{interviewer.completed}</TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {interviewer.feedbackGiven} of {interviewer.completed}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      <section aria-labelledby="interviewers" className="mt-8">
+        <div className="flex flex-wrap items-baseline justify-between gap-4">
+          <h2 id="interviewers" className="font-mono text-[10px] font-normal tracking-[0.14em] text-muted-foreground uppercase">
+            Interviewers · last {range} days
+          </h2>
+          <span className="text-[13px] text-muted-foreground">Feedback is counted against completed interviews only</span>
+        </div>
+        {analytics.interviewers.length === 0 ? (
+          <p className="mt-3 border-t border-rule-strong py-4 text-sm text-muted-foreground">No interviews in this range.</p>
+        ) : (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[620px] border-collapse text-sm">
+              <thead>
+                <tr className="border-t border-b border-t-rule-strong border-b-border">
+                  {["Interviewer", "Scheduled", "Completed", "Feedback given", "Outstanding"].map((heading, index) => (
+                    <th
+                      key={heading}
+                      className={`py-2.5 font-mono text-[10px] font-normal tracking-[0.14em] text-muted-foreground uppercase ${index === 0 ? "text-left" : "text-right"}`}
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {analytics.interviewers.map((interviewer) => {
+                  const outstanding = interviewer.completed - interviewer.feedbackGiven;
+                  return (
+                    <tr key={interviewer.name} className="border-b border-hairline last:border-b-0">
+                      <td className="py-[13px] font-medium">{interviewer.name}</td>
+                      <td className="py-[13px] text-right font-mono tabular-nums">{interviewer.scheduled}</td>
+                      <td className="py-[13px] text-right font-mono tabular-nums">{interviewer.completed}</td>
+                      <td className="py-[13px] text-right font-mono tabular-nums">
+                        {interviewer.completed === 0 ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          `${interviewer.feedbackGiven} of ${interviewer.completed}`
+                        )}
+                      </td>
+                      <td className="py-[13px] text-right">
+                        {interviewer.completed === 0 ? (
+                          <span className="text-[13px] text-muted-foreground">Nothing completed</span>
+                        ) : outstanding > 0 ? (
+                          <StatusBadge tone="warning" shape="dot">
+                            {outstanding} outstanding
+                          </StatusBadge>
+                        ) : (
+                          <StatusBadge tone="success" shape="square">
+                            Clear
+                          </StatusBadge>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

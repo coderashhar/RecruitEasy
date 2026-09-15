@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { FeedbackRecommendation } from "@interviewhub/db";
 import { RUBRIC_CRITERIA } from "@interviewhub/types";
+import { ScoreBar } from "@/components/broadsheet/measures";
+import { PageHeader } from "@/components/broadsheet/section";
+import {
+  ApplicationStatusBadge,
+  RECOMMENDATION_ORDER,
+  RecommendationBadge,
+} from "@/components/broadsheet/status-badge";
+import { Button } from "@/components/ui/button";
 import {
   COMPARE_MAX,
   COMPARE_MIN,
@@ -13,13 +18,6 @@ import {
   type ComparisonColumn,
 } from "@/lib/candidate-profile";
 import { requireCurrentUser } from "@/lib/users";
-
-const RECOMMENDATION_LABEL: Record<FeedbackRecommendation, string> = {
-  STRONG_YES: "Strong yes",
-  YES: "Yes",
-  NO: "No",
-  STRONG_NO: "Strong no",
-};
 
 /** The best value in a row gets emphasis — only when there is a single best. */
 function leaderIndex(values: Array<number | null>): number | null {
@@ -43,14 +41,17 @@ function Row({
 }) {
   const leader = numeric ? leaderIndex(columns.map(numeric)) : null;
   return (
-    <tr className="border-t align-top">
-      <th scope="row" className="w-40 py-2.5 pr-4 text-left text-xs font-medium text-muted-foreground">
+    <tr className="border-b border-hairline align-top last:border-b-0">
+      <th
+        scope="row"
+        className="w-[184px] py-3.5 pr-4 text-left font-mono text-[11px] font-normal tracking-[0.1em] text-muted-foreground uppercase"
+      >
         {label}
       </th>
       {columns.map((column, index) => (
         <td
           key={column.applicationId}
-          className={`py-2.5 pr-4 text-sm tabular-nums ${index === leader ? "font-semibold" : ""}`}
+          className={`py-3.5 pr-5 text-sm tabular-nums ${index === leader ? "font-semibold" : ""}`}
         >
           {render(column)}
         </td>
@@ -69,69 +70,65 @@ export default async function ComparePage({
 
   if (!ids) {
     return (
-      <Card className="mx-auto max-w-lg">
-        <CardHeader>
-          <CardTitle>Pick candidates to compare</CardTitle>
-          <CardDescription>
-            Select {COMPARE_MIN} to {COMPARE_MAX} applications in the pipeline, then choose Compare.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Link href="/recruiter" className="text-sm text-primary hover:underline">
-            Back to the pipeline
-          </Link>
-        </CardContent>
-      </Card>
+      <div className="flex max-w-[640px] flex-col">
+        <PageHeader
+          title="Pick candidates to compare"
+          description={`Select ${COMPARE_MIN} to ${COMPARE_MAX} applications in the pipeline, then choose Compare.`}
+        />
+        <Link href="/recruiter" className="mt-6 text-sm text-primary hover:underline">
+          Back to the pipeline
+        </Link>
+      </div>
     );
   }
 
   const columns = await getComparison(user.orgId, ids);
   if (!columns) notFound();
 
+  const jobs = [...new Set(columns.map((column) => column.jobTitle))];
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Compare candidates</CardTitle>
-        <CardDescription>
-          Feedback is averaged across every round. Where one candidate leads a row outright, their value is in bold.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="overflow-x-auto">
+    <div className="flex flex-col">
+      <PageHeader
+        eyebrow={`Compare · ${columns.length} candidates`}
+        title={jobs.length === 1 ? jobs[0] : "Compare candidates"}
+        description="Scores are averages of submitted feedback across every round. A row's outright leader is in bold."
+        actions={<Button variant="outline" nativeButton={false} render={<Link href="/recruiter">Change selection</Link>} />}
+      />
+
+      <div className="mt-6 overflow-x-auto">
         <table className="w-full min-w-[640px] border-collapse">
           <thead>
-            <tr>
-              <th scope="col" className="w-40" />
+            <tr className="border-b border-rule-strong">
+              <th scope="col" className="w-[184px]" />
               {columns.map((column) => (
-                <th key={column.applicationId} scope="col" className="pb-3 pr-4 text-left align-bottom">
+                <th key={column.applicationId} scope="col" className="pr-5 pb-3 text-left align-bottom">
                   <Link
                     href={`/recruiter/candidates/${column.applicationId}`}
-                    className="font-semibold hover:underline"
+                    className="text-[15.5px] font-semibold hover:underline"
                   >
-                    {column.shortlisted && <span className="text-amber-500" aria-label="Shortlisted">★ </span>}
+                    {column.shortlisted && (
+                      <span className="text-primary" aria-label="Shortlisted">
+                        ★{" "}
+                      </span>
+                    )}
                     {column.candidateName}
                   </Link>
-                  <div className="text-xs font-normal text-muted-foreground">{column.jobTitle}</div>
+                  <div className="mt-[3px] text-[12.5px] font-normal text-muted-foreground">
+                    {jobs.length > 1 ? `${column.jobTitle} · ` : ""}
+                    {column.roundsCompleted} of {column.roundsTotal} rounds done
+                  </div>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            <Row label="Status" columns={columns} render={(column) => <Badge variant="outline">{column.status}</Badge>} />
+            <Row label="Status" columns={columns} render={(column) => <ApplicationStatusBadge status={column.status} />} />
             <Row
               label="ATS score"
               columns={columns}
               numeric={(column) => column.atsScore}
-              render={(column) => (column.atsScore !== null ? `${column.atsScore}/100` : "—")}
-            />
-            <Row
-              label="Skills matched"
-              columns={columns}
-              render={(column) => (column.matchedSkills.length ? column.matchedSkills.join(", ") : "—")}
-            />
-            <Row
-              label="Skills missing"
-              columns={columns}
-              render={(column) => (column.missingSkills.length ? column.missingSkills.join(", ") : "—")}
+              render={(column) => <ScoreBar value={column.atsScore} width={50} className="justify-start" />}
             />
             {RUBRIC_CRITERIA.map(({ key, label }) => (
               <Row
@@ -141,42 +138,62 @@ export default async function ComparePage({
                 numeric={(column) => column.feedback.averages[key]}
                 render={(column) => {
                   const average = column.feedback.averages[key];
-                  return average !== null ? `${average}/5` : "—";
+                  return average === null ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : (
+                    <>
+                      <span className="font-mono">{average.toFixed(1)}</span>
+                      <span className="ml-2 text-[12.5px] font-normal text-muted-foreground">of 5</span>
+                    </>
+                  );
                 }}
               />
             ))}
             <Row
-              label="Recommendations"
+              label="Recommendation"
               columns={columns}
               render={(column) =>
                 column.feedback.count === 0 ? (
-                  "—"
+                  <span className="text-muted-foreground">No feedback yet</span>
                 ) : (
-                  <div className="flex flex-wrap gap-1">
-                    {(Object.keys(RECOMMENDATION_LABEL) as FeedbackRecommendation[])
+                  <div className="flex flex-wrap gap-1.5">
+                    {[...RECOMMENDATION_ORDER]
+                      .reverse()
                       .filter((key) => column.feedback.recommendations[key] > 0)
                       .map((key) => (
-                        <Badge key={key} variant={key === "NO" || key === "STRONG_NO" ? "outline" : "secondary"}>
-                          {RECOMMENDATION_LABEL[key]} × {column.feedback.recommendations[key]}
-                        </Badge>
+                        <RecommendationBadge key={key} recommendation={key}>
+                          {column.feedback.recommendations[key]} of {column.feedback.count}
+                        </RecommendationBadge>
                       ))}
                   </div>
                 )
               }
             />
             <Row
-              label="Rounds completed"
+              label="Skills matched"
               columns={columns}
-              render={(column) => `${column.roundsCompleted} of ${column.roundsTotal}`}
+              render={(column) =>
+                column.matchedSkills.length ? column.matchedSkills.join(", ") : <span className="text-muted-foreground">—</span>
+              }
+            />
+            <Row
+              label="Skills missing"
+              columns={columns}
+              render={(column) =>
+                column.missingSkills.length ? column.missingSkills.join(", ") : <span className="text-muted-foreground">—</span>
+              }
             />
             <Row
               label="Integrity signals"
               columns={columns}
-              render={(column) => column.integritySignals}
+              render={(column) => <span className="font-mono">{column.integritySignals}</span>}
             />
           </tbody>
         </table>
-      </CardContent>
-    </Card>
+      </div>
+      <p className="mt-5 border-t border-rule-strong pt-4 text-[13px] text-muted-foreground">
+        Scores are averages of submitted feedback only. Integrity signals are context, never a verdict.
+      </p>
+    </div>
   );
 }

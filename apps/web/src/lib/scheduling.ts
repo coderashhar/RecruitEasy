@@ -134,3 +134,50 @@ export async function scheduleInterviewForOrg(
 
   return result;
 }
+
+export interface BusyInterval {
+  interviewerId: string;
+  start: string;
+  end: string;
+}
+
+/**
+ * When each of `interviewerIds` is already booked between `from` and `to`, so
+ * the scheduling grid can show conflicts before a time is chosen rather than
+ * rejecting one afterwards. The same statuses findInterviewerConflict treats as
+ * a conflict, plus IN_PROGRESS, which is busy right now.
+ *
+ * Ids from outside the caller's org are dropped rather than trusted: this is
+ * called from a Server Action, and another org's calendar is not ours to read.
+ * Returns bare intervals — never who the interview is with.
+ */
+export async function getInterviewerBusy(
+  orgId: string,
+  interviewerIds: string[],
+  from: Date,
+  to: Date,
+): Promise<BusyInterval[]> {
+  if (interviewerIds.length === 0) return [];
+
+  const rows = await prisma.interviewParticipant.findMany({
+    where: {
+      role: "INTERVIEWER",
+      user: { id: { in: interviewerIds }, orgId },
+      interview: {
+        status: { in: ["SCHEDULED", "IN_PROGRESS"] },
+        // The longest interview is 240 minutes, so anything starting earlier
+        // than that before the window cannot reach into it.
+        scheduledAt: { gte: new Date(from.getTime() - 240 * 60_000), lt: to },
+      },
+    },
+    select: { userId: true, interview: { select: { scheduledAt: true, durationMins: true } } },
+  });
+
+  return rows
+    .map(({ userId, interview }) => ({
+      interviewerId: userId,
+      start: interview.scheduledAt.toISOString(),
+      end: new Date(interview.scheduledAt.getTime() + interview.durationMins * 60_000).toISOString(),
+    }))
+    .filter((interval) => new Date(interval.end) > from);
+}

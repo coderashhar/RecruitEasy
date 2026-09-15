@@ -1,6 +1,6 @@
 import "server-only";
 
-import { prisma } from "@interviewhub/db";
+import { prisma, type Prisma } from "@interviewhub/db";
 import { INTERVIEWER_CAPABLE_ROLES } from "@interviewhub/types";
 
 /**
@@ -80,7 +80,10 @@ export async function getCandidateOverview(userId: string) {
         OR: [{ status: "SCHEDULED", scheduledAt: { gte: now } }, { status: "IN_PROGRESS" }],
       },
       orderBy: { scheduledAt: "asc" },
-      include: { application: { include: { job: true } } },
+      include: {
+        application: { include: { job: true } },
+        participants: { where: { role: "INTERVIEWER" }, include: { user: { select: { name: true } } } },
+      },
     }),
     // The exact complement of the query above: reached a terminal state, or
     // its slot passed without ever starting. IN_PROGRESS is excluded here
@@ -228,5 +231,160 @@ export async function getPotentialInterviewers(orgId: string) {
     where: { orgId, role: { in: [...INTERVIEWER_CAPABLE_ROLES] } },
     orderBy: { name: "asc" },
     select: { id: true, name: true, role: true },
+  });
+}
+
+const ACTIVE_APPLICATION: Prisma.ApplicationWhereInput = { status: { notIn: ["HIRED", "REJECTED"] } };
+
+function upcomingOrLive(now: Date) {
+  return [{ status: "SCHEDULED" as const, scheduledAt: { gte: now } }, { status: "IN_PROGRESS" as const }];
+}
+
+/**
+ * The small numbers beside sidebar items. Each is the count of a list one
+ * click away, so every query mirrors the page it points at.
+ */
+export async function getNavCounts(user: { id: string; orgId: string }, role: string) {
+  const now = new Date();
+
+  if (role === "CANDIDATE") {
+    const [applications, upcomingInterviews] = await Promise.all([
+      prisma.application.count({ where: { candidateId: user.id } }),
+      prisma.interview.count({
+        where: { participants: { some: { userId: user.id } }, OR: upcomingOrLive(now) },
+      }),
+    ]);
+    return { applications, upcomingInterviews };
+  }
+
+  if (role === "INTERVIEWER") {
+    const [upcomingInterviews, feedbackDue] = await Promise.all([
+      prisma.interview.count({
+        where: {
+          application: { job: { orgId: user.orgId } },
+          participants: { some: { userId: user.id, role: "INTERVIEWER" } },
+          OR: upcomingOrLive(now),
+        },
+      }),
+      prisma.interview.count({ where: feedbackDueWhere(user) }),
+    ]);
+    return { upcomingInterviews, feedbackDue };
+  }
+
+  const [activeApplications, upcomingInterviews, pendingDeletions] = await Promise.all([
+    prisma.application.count({ where: { job: { orgId: user.orgId }, ...ACTIVE_APPLICATION } }),
+    prisma.interview.count({ where: { application: { job: { orgId: user.orgId } }, OR: upcomingOrLive(now) } }),
+    role === "ADMIN"
+      ? prisma.dataDeletionRequest.count({ where: { orgId: user.orgId, status: "PENDING" } })
+      : Promise.resolve(0),
+  ]);
+  return { activeApplications, upcomingInterviews, pendingDeletions };
+}
+
+/**
+ * Completed interviews this person sat in as an interviewer and has not yet
+ * written feedback for — the debt that blocks a panel from deciding.
+ */
+function feedbackDueWhere(user: { id: string; orgId: string }) {
+  return {
+    application: { job: { orgId: user.orgId } },
+    status: "COMPLETED" as const,
+    participants: { some: { userId: user.id, role: "INTERVIEWER" as const } },
+    feedback: { none: { interviewerId: user.id } },
+  };
+}
+
+export async function getFeedbackDue(user: { id: string; orgId: string }) {
+  return prisma.interview.findMany({
+    where: feedbackDueWhere(user),
+    orderBy: { scheduledAt: "asc" },
+    include: {
+      application: {
+        include: { candidate: { select: { id: true, name: true } }, job: { select: { title: true } } },
+      },
+    },
+  });
+}
+
+/** An interviewer's own upcoming and live interviews, soonest first. */
+export async function getInterviewerSchedule(user: { id: string; orgId: string }) {
+  return prisma.interview.findMany({
+    where: {
+      application: { job: { orgId: user.orgId } },
+      participants: { some: { userId: user.id, role: "INTERVIEWER" } },
+      OR: upcomingOrLive(new Date()),
+    },
+    orderBy: { scheduledAt: "asc" },
+    include: {
+      application: {
+        include: { candidate: { select: { id: true, name: true } }, job: { select: { title: true } } },
+      },
+    },
+  });
+}
+
+/**
+ * Every interview in the org, or only the ones `participantId` sits in on:
+ * upcoming and live first, then the most recent past ones.
+ */
+export async function getInterviewList(orgId: string, participantId?: string) {
+  const now = new Date();
+  const scope = {
+    application: { job: { orgId } },
+    ...(participantId && { participants: { some: { userId: participantId } } }),
+  };
+  const include = {
+    application: {
+      include: { candidate: { select: { id: true, name: true } }, job: { select: { title: true } } },
+    },
+    participants: {
+      where: { role: "INTERVIEWER" as const },
+      include: { user: { select: { id: true, name: true } } },
+    },
+  };
+
+  const [upcoming, past] = await Promise.all([
+    prisma.interview.findMany({
+      where: { ...scope, OR: upcomingOrLive(now) },
+      orderBy: { scheduledAt: "asc" },
+      include,
+    }),
+    prisma.interview.findMany({
+      where: {
+        ...scope,
+        status: { not: "IN_PROGRESS" },
+        OR: [{ status: { not: "SCHEDULED" } }, { scheduledAt: { lt: now } }],
+      },
+      orderBy: { scheduledAt: "desc" },
+      take: 50,
+      include,
+    }),
+  ]);
+  return { upcoming, past };
+}
+
+/** The org's jobs with how many applications each holds, and how many are still open. */
+export async function getJobsWithCounts(orgId: string) {
+  const jobs = await prisma.job.findMany({
+    where: { orgId },
+    orderBy: { createdAt: "desc" },
+    include: {
+      _count: { select: { applications: true } },
+      applications: { where: ACTIVE_APPLICATION, select: { id: true } },
+    },
+  });
+  return jobs.map(({ applications, ...job }) => ({ ...job, activeApplications: applications.length }));
+}
+
+/** Name of the caller's own organisation, for the sidebar's identity line. */
+export async function getOrganizationName(orgId: string) {
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } });
+  return org?.name ?? null;
+}
+
+/** Recordings still held about a candidate, for the "your data" summary. */
+export async function countCandidateRecordings(candidateId: string) {
+  return prisma.recording.count({
+    where: { interview: { application: { candidateId } }, status: { not: "EXPIRED" } },
   });
 }

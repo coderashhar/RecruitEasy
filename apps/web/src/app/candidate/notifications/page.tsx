@@ -35,7 +35,7 @@ export default async function NotificationsPage() {
                 key={notification.id}
                 href={notification.link ?? "#"}
                 className={`flex flex-col gap-0.5 rounded-md border p-3 text-sm transition-colors hover:bg-muted/50 ${
-                  notification.readAt ? "opacity-60" : "border-primary/20 bg-primary/5"
+                  notification.readAt ? "opacity-60" : "border-l-2 border-l-primary"
                 }`}
               >
                 <span className="font-medium">{notification.title}</span>

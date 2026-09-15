@@ -1,33 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { InterviewStatus } from "@interviewhub/db";
-import { InterviewStatusActions } from "@/components/interview/interview-status-actions";
 import { RUBRIC_CRITERIA } from "@interviewhub/types";
+import { LocalTime } from "@/components/broadsheet/local-time";
+import { CalloutBanner } from "@/components/broadsheet/panels";
+import { PageHeader, SectionLabel } from "@/components/broadsheet/section";
+import { InterviewStatusBadge, RecommendationBadge } from "@/components/broadsheet/status-badge";
+import { Button } from "@/components/ui/button";
+import { InterviewStatusActions } from "@/components/interview/interview-status-actions";
 import { describeIntegritySignal } from "@/lib/integrity";
 import { getInterviewDetail } from "@/lib/queries";
 import { getRecordingForReview } from "@/lib/recording";
 import { requireCurrentUser } from "@/lib/users";
 import { FeedbackForm } from "./feedback-form";
 import { RescheduleForm } from "./reschedule-form";
-
-const STATUS_VARIANT: Record<InterviewStatus, "default" | "secondary" | "outline" | "destructive"> = {
-  SCHEDULED: "outline",
-  IN_PROGRESS: "default",
-  COMPLETED: "secondary",
-  CANCELLED: "destructive",
-  NO_SHOW: "destructive",
-};
-
-const RECOMMENDATION_LABEL: Record<string, string> = {
-  STRONG_YES: "Strong yes",
-  YES: "Yes",
-  NO: "No",
-  STRONG_NO: "Strong no",
-};
-
 
 export default async function InterviewDetailPage({
   params,
@@ -54,209 +39,229 @@ export default async function InterviewDetailPage({
   const isInterviewerHere = interview.participants.some(
     (participant) => participant.userId === user.id && participant.role === "INTERVIEWER",
   );
+  const isParticipant = interview.participants.some((participant) => participant.userId === user.id);
   const myFeedback = interview.feedback.find((entry) => entry.interviewerId === user.id);
+  const live = interview.status === "SCHEDULED" || interview.status === "IN_PROGRESS";
+  const ended = new Date(interview.scheduledAt.getTime() + interview.durationMins * 60_000);
+  const feedbackDueAt = new Date(ended.getTime() + 24 * 60 * 60 * 1000);
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-4">
-      <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0">
-          <div>
-            <CardTitle>
-              <Link href={`/recruiter/candidates/${interview.applicationId}`} className="hover:underline">
-                {interview.application.candidate.name}
-              </Link>{" "}
-              — {interview.application.job.title}
-            </CardTitle>
-            <CardDescription>
-              Round {interview.round} ·{" "}
-              {interview.scheduledAt.toLocaleString(undefined, {
-                dateStyle: "medium",
-                timeStyle: "short",
-              })}{" "}
-              · {interview.durationMins} min
-            </CardDescription>
-          </div>
-          <Badge variant={STATUS_VARIANT[interview.status]}>{interview.status}</Badge>
-        </CardHeader>
-        {canManage && (
-          <CardContent className="flex flex-col gap-4">
-            <InterviewStatusActions interviewId={interview.id} status={interview.status} />
-            {interview.status === "SCHEDULED" && (
-              <RescheduleForm
-                interviewId={interview.id}
-                scheduledAt={interview.scheduledAt}
-                durationMins={interview.durationMins}
-              />
+    <div className="flex max-w-[960px] flex-col">
+      <PageHeader
+        eyebrow={<>Round {interview.round} · {interview.durationMins} min</>}
+        title={
+          <Link href={`/recruiter/candidates/${interview.applicationId}`} className="hover:underline">
+            {interview.application.candidate.name}
+          </Link>
+        }
+        description={
+          <>
+            {interview.application.job.title} · <LocalTime value={interview.scheduledAt} format="datetime" />
+          </>
+        }
+        actions={
+          <>
+            <InterviewStatusBadge status={interview.status} />
+            {live && isParticipant && (
+              <Button nativeButton={false} render={<Link href={`/interview/${interview.id}`}>Join interview</Link>} />
             )}
-            {interview.status === "COMPLETED" && (
-              <Button
-                size="sm"
-                variant="outline"
-                nativeButton={false}
-                render={
-                  <Link
-                    href={`/recruiter/schedule?applicationId=${interview.applicationId}&round=${interview.round + 1}`}
-                  >
-                    Schedule round {interview.round + 1}
-                  </Link>
-                }
-              />
-            )}
-          </CardContent>
-        )}
-      </Card>
+          </>
+        }
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Participants</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          {interview.participants.map((participant) => (
-            <div key={participant.id} className="flex items-center justify-between text-sm">
-              <span>{participant.user.name}</span>
-              <span className="text-muted-foreground">{participant.role}</span>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Recording</CardTitle>
-          <CardDescription>
-            {!recording
-              ? "Not recorded. The interviewer can start a recording from the room."
-              : recording.status === "READY"
-                ? `${recording.durationSec ? `${Math.floor(recording.durationSec / 60)} min ${recording.durationSec % 60} s. ` : ""}${recording.error ?? ""}`
-                : recording.status === "EXPIRED"
-                  ? (recording.error ?? "The recording was deleted under the retention policy.")
-                  : recording.status === "FAILED"
-                  ? `Recording failed: ${recording.error ?? "no reason given."}`
-                  : recording.status === "PROCESSING"
-                    ? "Recording stopped — LiveKit is still saving the file. Reload in a minute."
-                    : "Recording in progress."}
-          </CardDescription>
-        </CardHeader>
-        {recording?.playbackUrl && (
-          <CardContent>
-            {/* The link expires after 15 minutes; reloading the page issues a new one. */}
-            <video controls preload="metadata" src={recording.playbackUrl} className="w-full rounded-md bg-black" />
-          </CardContent>
-        )}
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Code</CardTitle>
-          <CardDescription>
-            {interview.codeDocument
-              ? `Last saved as ${interview.codeDocument.language}.`
-              : "Nothing persisted yet — the room hasn't been joined."}
-          </CardDescription>
-        </CardHeader>
-        {interview.codeDocument?.finalCode && (
-          <CardContent>
-            <pre className="max-h-96 overflow-auto rounded-md border bg-muted/50 p-3 text-xs">
-              <code>{interview.codeDocument.finalCode}</code>
-            </pre>
-          </CardContent>
-        )}
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Chat</CardTitle>
-          <CardDescription>
-            {interview.chatMessages.length === 0
-              ? "Nothing was said in the room's chat."
-              : `${interview.chatMessages.length} message${interview.chatMessages.length === 1 ? "" : "s"}.`}
-          </CardDescription>
-        </CardHeader>
-        {interview.chatMessages.length > 0 && (
-          <CardContent className="flex max-h-96 flex-col gap-1.5 overflow-y-auto">
-            {interview.chatMessages.map((message) => (
-              <div key={message.id} className="flex items-baseline justify-between gap-3 text-sm">
-                <span className="min-w-0 break-words">
-                  <span className="font-medium">{message.user.name}:</span> {message.body}
-                </span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {message.createdAt.toLocaleTimeString()}
-                </span>
-              </div>
-            ))}
-          </CardContent>
-        )}
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Integrity signals</CardTitle>
-          <CardDescription>
-            {interview.integritySignals.length === 0
-              ? "None recorded."
-              : "Advisory only — not a verdict on the candidate."}
-          </CardDescription>
-        </CardHeader>
-        {interview.integritySignals.length > 0 && (
-          <CardContent className="flex flex-col gap-1.5">
-            {interview.integritySignals.map((signal) => (
-              <div key={signal.id} className="flex items-center justify-between text-sm">
-                <span>{describeIntegritySignal(signal.type, signal.payload)}</span>
-                <span className="text-muted-foreground">
-                  {signal.occurredAt.toLocaleTimeString()}
-                </span>
-              </div>
-            ))}
-          </CardContent>
-        )}
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Feedback</CardTitle>
-          <CardDescription>
-            {interview.feedback.length === 0
-              ? "No feedback submitted yet."
-              : `${interview.feedback.length} submitted.`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-5">
-          {interview.feedback.map((entry) => {
-            const scores = entry.rubricScores as Record<string, number>;
-            return (
-              <div key={entry.id} className="flex flex-col gap-1.5 rounded-md border p-3 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">{entry.interviewer.name}</span>
-                  <Badge variant="secondary">
-                    {RECOMMENDATION_LABEL[entry.recommendation] ?? entry.recommendation}
-                  </Badge>
-                </div>
-                <div className="text-muted-foreground">
-                  {RUBRIC_CRITERIA.map(({ key, label }) => `${label} ${scores?.[key] ?? "—"}/5`).join(
-                    " · ",
-                  )}
-                </div>
-                {entry.notes && <p className="whitespace-pre-wrap">{entry.notes}</p>}
-              </div>
-            );
-          })}
-
-          {isInterviewerHere && (
-            <FeedbackForm
+      {canManage && (live || interview.status === "COMPLETED") && (
+        <div className="mt-6 flex flex-wrap items-start gap-2.5 border-t border-rule-strong pt-4">
+          <InterviewStatusActions
+            interviewId={interview.id}
+            status={interview.status}
+            candidateName={interview.application.candidate.name}
+            round={interview.round}
+          />
+          {interview.status === "SCHEDULED" && (
+            <RescheduleForm
               interviewId={interview.id}
-              existing={
-                myFeedback
-                  ? {
-                      rubricScores: myFeedback.rubricScores as Record<string, number>,
-                      notes: myFeedback.notes,
-                      recommendation: myFeedback.recommendation,
-                    }
-                  : undefined
+              scheduledAt={interview.scheduledAt}
+              durationMins={interview.durationMins}
+            />
+          )}
+          {interview.status === "COMPLETED" && (
+            <Button
+              variant="outline"
+              nativeButton={false}
+              render={
+                <Link href={`/recruiter/schedule?applicationId=${interview.applicationId}&round=${interview.round + 1}`}>
+                  Schedule round {interview.round + 1}
+                </Link>
               }
             />
           )}
-        </CardContent>
-      </Card>
+        </div>
+      )}
+
+      <div className="mt-9 grid items-start gap-12 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="flex min-w-0 flex-col gap-10">
+          <section aria-labelledby="feedback-label" id="feedback" className="scroll-mt-24">
+            <SectionLabel
+              id="feedback-label"
+              aside={
+                interview.status === "COMPLETED" && isInterviewerHere && !myFeedback ? (
+                  <>
+                    due by <LocalTime value={feedbackDueAt} format="weekdayTime" />
+                  </>
+                ) : (
+                  `${interview.feedback.length} submitted`
+                )
+              }
+            >
+              Feedback
+            </SectionLabel>
+
+            {interview.feedback.length === 0 && !isInterviewerHere && (
+              <p className="py-4 text-sm text-muted-foreground">No feedback submitted yet.</p>
+            )}
+            {interview.feedback.map((entry) => {
+              const scores = entry.rubricScores as Record<string, number>;
+              return (
+                <article key={entry.id} className="border-b border-hairline py-4 last:border-b-0">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="text-[14.5px] font-semibold">{entry.interviewer.name}</span>
+                    <RecommendationBadge recommendation={entry.recommendation} />
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[13px] text-muted-foreground">
+                    {RUBRIC_CRITERIA.map(({ key, label }) => (
+                      <span key={key}>
+                        {label} <span className="font-mono text-foreground">{scores?.[key] ?? "—"}</span>/5
+                      </span>
+                    ))}
+                  </div>
+                  {entry.notes && <p className="mt-2.5 text-sm leading-relaxed whitespace-pre-wrap">{entry.notes}</p>}
+                </article>
+              );
+            })}
+
+            {isInterviewerHere && (
+              <div className="mt-6">
+                <h3 className="mb-3 text-lg font-semibold tracking-[-0.015em]">
+                  {myFeedback ? "Update your feedback" : "Your feedback"}
+                </h3>
+                <FeedbackForm
+                  interviewId={interview.id}
+                  existing={
+                    myFeedback
+                      ? {
+                          rubricScores: myFeedback.rubricScores as Record<string, number>,
+                          notes: myFeedback.notes,
+                          recommendation: myFeedback.recommendation,
+                        }
+                      : undefined
+                  }
+                />
+              </div>
+            )}
+          </section>
+
+          <section aria-labelledby="code">
+            <SectionLabel id="code" aside={interview.codeDocument ? interview.codeDocument.language : undefined}>
+              Code
+            </SectionLabel>
+            {interview.codeDocument?.finalCode ? (
+              <pre className="mt-4 max-h-96 overflow-auto bg-well p-4 font-mono text-[13px] leading-relaxed text-[oklch(0.9_0.002_85)]">
+                <code>{interview.codeDocument.finalCode}</code>
+              </pre>
+            ) : (
+              <p className="py-4 text-sm text-muted-foreground">Nothing persisted yet — the room hasn&apos;t been joined.</p>
+            )}
+          </section>
+
+          <section aria-labelledby="chat">
+            <SectionLabel id="chat" aside={`${interview.chatMessages.length} message${interview.chatMessages.length === 1 ? "" : "s"}`}>
+              Chat
+            </SectionLabel>
+            {interview.chatMessages.length === 0 ? (
+              <p className="py-4 text-sm text-muted-foreground">Nothing was said in the room&apos;s chat.</p>
+            ) : (
+              <div className="mt-3 flex max-h-96 flex-col gap-3 overflow-y-auto">
+                {interview.chatMessages.map((message) => (
+                  <div key={message.id} className="text-sm leading-normal">
+                    <div className="mb-0.5 text-[11.5px] text-muted-foreground">
+                      {message.user.name} · <LocalTime value={message.createdAt} format="time" />
+                    </div>
+                    <span className="break-words">{message.body}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+        <aside className="flex flex-col gap-10">
+          <section aria-labelledby="participants">
+            <SectionLabel id="participants">Participants · {interview.participants.length}</SectionLabel>
+            {interview.participants.map((participant) => (
+              <div key={participant.id} className="flex justify-between gap-4 border-b border-hairline py-[11px] text-[13.5px] last:border-b-0">
+                <span>
+                  {participant.user.name}
+                  {participant.userId === user.id && " (you)"}
+                </span>
+                <span className="text-xs text-muted-foreground capitalize">{participant.role.toLowerCase()}</span>
+              </div>
+            ))}
+          </section>
+
+          <section aria-labelledby="recording">
+            <SectionLabel id="recording">Recording</SectionLabel>
+            <div className="mt-3.5">
+              {!recording ? (
+                <p className="text-sm text-muted-foreground">Not recorded. The interviewer can start one from the room.</p>
+              ) : recording.status === "READY" ? (
+                <>
+                  {/* The link expires after 15 minutes; reloading the page issues a new one. */}
+                  {recording.playbackUrl && (
+                    <video controls preload="metadata" src={recording.playbackUrl} className="w-full bg-black" />
+                  )}
+                  <p className="mt-2 font-mono text-xs text-muted-foreground">
+                    {recording.durationSec
+                      ? `${Math.floor(recording.durationSec / 60)} min ${recording.durationSec % 60} s`
+                      : "ready"}
+                    {recording.error && ` · ${recording.error}`}
+                  </p>
+                </>
+              ) : recording.status === "FAILED" ? (
+                <CalloutBanner tone="danger" title="Recording failed">
+                  {recording.error ?? "No reason given."}
+                </CalloutBanner>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {recording.status === "EXPIRED"
+                    ? (recording.error ?? "The recording was deleted under the retention policy.")
+                    : recording.status === "PROCESSING"
+                      ? "Recording stopped — still being saved. Reload in a minute."
+                      : "Recording in progress."}
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section aria-labelledby="integrity">
+            <SectionLabel id="integrity" aside={interview.integritySignals.length > 0 ? "advisory only" : undefined}>
+              Integrity signals
+            </SectionLabel>
+            {interview.integritySignals.length === 0 ? (
+              <p className="py-3.5 text-sm text-muted-foreground">None recorded.</p>
+            ) : (
+              <>
+                {interview.integritySignals.map((signal) => (
+                  <div key={signal.id} className="flex justify-between gap-4 border-b border-hairline py-[11px] text-[13.5px] last:border-b-0">
+                    <span>{describeIntegritySignal(signal.type, signal.payload)}</span>
+                    <LocalTime value={signal.occurredAt} format="time" className="shrink-0 font-mono text-xs text-muted-foreground" />
+                  </div>
+                ))}
+                <p className="mt-2 text-[13px] text-muted-foreground">Context, not a verdict on the candidate.</p>
+              </>
+            )}
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }

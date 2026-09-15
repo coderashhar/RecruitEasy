@@ -1,78 +1,125 @@
-import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { LocalTime } from "@/components/broadsheet/local-time";
+import { PageHeader, SectionLabel } from "@/components/broadsheet/section";
+import { StatusBadge, type Shape, type Tone } from "@/components/broadsheet/status-badge";
 import { DeletionRequestActions } from "@/components/privacy/deletion-request-actions";
 import { getDeletionRequests } from "@/lib/data-deletion";
 import { requireCurrentUser } from "@/lib/users";
 
+/** GDPR gives a month to respond; the chip says how much of it has gone. */
+const RESPONSE_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function deadlineChip(requestedAt: Date, now: Date): { tone: Tone; shape: Shape; day: number } {
+  const day = Math.floor((now.getTime() - requestedAt.getTime()) / DAY_MS) + 1;
+  if (day >= RESPONSE_DAYS - 5) return { tone: "danger", shape: "bar", day };
+  if (day >= 7) return { tone: "warning", shape: "dot", day };
+  return { tone: "neutral", shape: "hollow", day };
+}
+
 export default async function DeletionRequestsPage() {
   const { user } = await requireCurrentUser(["ADMIN"]);
   const { pending, processed } = await getDeletionRequests(user.orgId);
+  const now = new Date();
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-4">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Data deletion requests</h1>
-          <p className="text-sm text-muted-foreground">Candidates asking for their data to be permanently deleted.</p>
-        </div>
-        <Link href="/admin/audit" className="text-sm text-primary hover:underline">
-          Audit log
-        </Link>
-      </div>
+    <div className="flex max-w-[880px] flex-col">
+      <PageHeader
+        title="Data deletion requests"
+        description="Candidates asking for their data to be permanently deleted · nothing happens until an admin acts"
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Waiting</CardTitle>
-          <CardDescription>{pending.length === 0 ? "No requests waiting." : "Oldest first."}</CardDescription>
-        </CardHeader>
-        {pending.length > 0 && (
-          <CardContent className="flex flex-col gap-3">
-            {pending.map((request) => (
-              <div key={request.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm">
+      <section aria-labelledby="waiting" className="mt-[26px]">
+        <SectionLabel id="waiting" aside={`GDPR · respond within ${RESPONSE_DAYS} days`}>
+          Waiting · {pending.length}
+          {pending.length > 1 && " · oldest first"}
+        </SectionLabel>
+        {pending.length === 0 ? (
+          <p className="py-4 text-sm text-muted-foreground">No requests waiting.</p>
+        ) : (
+          pending.map((request) => {
+            const chip = deadlineChip(request.requestedAt, now);
+            return (
+              <div
+                key={request.id}
+                className="flex flex-col gap-4 border-b border-hairline py-[18px] last:border-b-0 md:flex-row md:items-center md:justify-between md:gap-6"
+              >
                 <div className="min-w-0">
-                  <div className="font-medium">{request.user?.name ?? "Account already removed"}</div>
-                  <div className="text-muted-foreground">
-                    {request.user?.email} · {request.user?._count.applicationsAsCandidate ?? 0} application(s) · asked{" "}
-                    {request.requestedAt.toLocaleDateString(undefined, { dateStyle: "medium" })}
+                  <div className="flex flex-wrap items-center gap-[11px]">
+                    <span className="text-base font-semibold tracking-[-0.015em]">
+                      {request.user?.name ?? "Account already removed"}
+                    </span>
+                    <StatusBadge tone={chip.tone} shape={chip.shape}>
+                      Day {chip.day} of {RESPONSE_DAYS}
+                    </StatusBadge>
+                  </div>
+                  <div className="mt-[5px] text-[13.5px] text-muted-foreground">
+                    {request.user ? (
+                      <>
+                        {request.user.email} · {request.user._count.applicationsAsCandidate} application
+                        {request.user._count.applicationsAsCandidate === 1 ? "" : "s"} · asked{" "}
+                        <LocalTime value={request.requestedAt} format="date" />
+                      </>
+                    ) : (
+                      "The user row is gone, so there is nothing left to delete. Close the request to clear the queue."
+                    )}
                   </div>
                 </div>
-                <DeletionRequestActions requestId={request.id} candidateName={request.user?.name ?? "this candidate"} />
+                <div className="shrink-0 md:max-w-[420px]">
+                  <DeletionRequestActions
+                    requestId={request.id}
+                    candidateName={request.user?.name ?? null}
+                    accountGone={!request.user}
+                  />
+                </div>
               </div>
-            ))}
-          </CardContent>
+            );
+          })
         )}
-      </Card>
+      </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Processed</CardTitle>
-          <CardDescription>
-            {processed.length === 0
-              ? "Nothing processed yet."
-              : "Completed requests no longer show who asked: that was part of what got deleted."}
-          </CardDescription>
-        </CardHeader>
-        {processed.length > 0 && (
-          <CardContent className="flex flex-col gap-2">
+      <section aria-labelledby="processed" className="mt-[30px]">
+        <SectionLabel id="processed" aside={processed.length > 0 ? "last 50" : undefined}>
+          Processed
+        </SectionLabel>
+        {processed.length === 0 ? (
+          <p className="py-4 text-sm text-muted-foreground">Nothing processed yet.</p>
+        ) : (
+          <>
+            <p className="pt-3 text-[13px] text-muted-foreground">
+              Completed requests no longer show who asked — that was part of what got deleted.
+            </p>
             {processed.map((request) => (
-              <div key={request.id} className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-                <span className="flex items-center gap-2">
-                  <Badge variant={request.status === "COMPLETED" ? "secondary" : "outline"}>
-                    {request.status === "COMPLETED" ? "Deleted" : "Declined"}
-                  </Badge>
-                  <span className="font-mono text-xs text-muted-foreground">{request.id}</span>
+              <div
+                key={request.id}
+                className="flex flex-col gap-2 border-b border-hairline py-[13px] text-[13.5px] last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-5"
+              >
+                <span className="flex items-center gap-[11px]">
+                  {request.status === "COMPLETED" ? (
+                    <StatusBadge tone="success" shape="square">
+                      Deleted
+                    </StatusBadge>
+                  ) : (
+                    <StatusBadge tone="danger" shape="bar">
+                      Declined
+                    </StatusBadge>
+                  )}
+                  <span className="font-mono text-[12.5px] text-muted-foreground">{request.id}</span>
                 </span>
-                <span className="text-muted-foreground">
-                  {request.processedBy?.name ?? "A former admin"} ·{" "}
-                  {request.processedAt?.toLocaleDateString(undefined, { dateStyle: "medium" })}
+                <span className="text-muted-foreground sm:text-right">
+                  {request.processedBy?.name ?? "A former admin"}
+                  {request.processedAt && (
+                    <>
+                      {" · "}
+                      <LocalTime value={request.processedAt} format="date" />
+                    </>
+                  )}
                   {request.reason && ` · “${request.reason}”`}
                 </span>
               </div>
             ))}
-          </CardContent>
+          </>
         )}
-      </Card>
+      </section>
     </div>
   );
 }

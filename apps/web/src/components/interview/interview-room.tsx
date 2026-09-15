@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -11,7 +12,8 @@ import {
   type FormEvent,
 } from "react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
+import { CalloutBanner } from "@/components/broadsheet/panels";
+import { StatusBadge, StatusGlyph, type Shape, type Tone } from "@/components/broadsheet/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { InterviewParticipantRole, InterviewStatus } from "@interviewhub/db";
@@ -32,7 +34,9 @@ import {
   runCode,
   setRecording,
 } from "@/app/interview/[id]/actions";
+import { DockButton, DockDivider, RoomDock, RoomHeader } from "./room-chrome";
 import { SocketYjsProvider, type ConnectionStatus } from "./socket-yjs-provider";
+import { cn } from "@/lib/utils";
 
 // Monaco measures the DOM and touches `window` on load, so it cannot be
 // prerendered on the server. Per Next's own docs, `ssr: false` is only legal
@@ -53,7 +57,7 @@ const CodeEditor = dynamic(() => import("./code-editor").then((m) => m.CodeEdito
 const VideoPanel = dynamic(() => import("./video-panel").then((m) => m.VideoPanel), {
   ssr: false,
   loading: () => (
-    <div className="flex min-h-64 flex-[3] items-center justify-center rounded-lg border text-sm text-muted-foreground">
+    <div className="flex aspect-video items-center justify-center bg-[oklch(0.19_0.004_85)] font-mono text-xs text-muted-foreground">
       Loading video…
     </div>
   ),
@@ -90,12 +94,12 @@ function mergeMessages(current: ChatMessageEvent[], incoming: ChatMessageEvent[]
   return [...byId.values()].sort((a, b) => a.at - b.at);
 }
 
-const STATUS_COPY: Record<ConnectionStatus, { label: string; tone: "ok" | "warn" | "bad" }> = {
-  connecting: { label: "Connecting…", tone: "warn" },
-  connected: { label: "Connected", tone: "ok" },
-  reconnecting: { label: "Reconnecting…", tone: "warn" },
-  disconnected: { label: "Disconnected", tone: "bad" },
-  unauthorized: { label: "Session expired — reload", tone: "bad" },
+const EXECUTION_STATUS: Record<ExecutionResult["status"], { label: string; tone: Tone; shape: Shape }> = {
+  QUEUED: { label: "Queued", tone: "neutral", shape: "hollow" },
+  RUNNING: { label: "Running", tone: "info", shape: "half" },
+  SUCCEEDED: { label: "Succeeded", tone: "success", shape: "square" },
+  FAILED: { label: "Failed", tone: "danger", shape: "bar" },
+  TIMEOUT: { label: "Timed out", tone: "danger", shape: "bar" },
 };
 
 export function InterviewRoom({
@@ -375,36 +379,40 @@ export function InterviewRoom({
     });
   }
 
-  const connectionCopy = STATUS_COPY[connection];
-
   const onlineCount = roster.filter((entry) => connectedIds.includes(entry.userId)).length;
+  const interviewersHere = roster.filter(
+    (entry) => entry.role === "INTERVIEWER" && connectedIds.includes(entry.userId),
+  );
+  const interviewerNames = roster.filter((entry) => entry.role === "INTERVIEWER").map((entry) => entry.name);
+  const canRecord =
+    role === "INTERVIEWER" &&
+    recordingAvailable &&
+    (recordingState === "idle" || recordingState === "failed" || recordingState === "recording");
+  const leaveHref = role === "CANDIDATE" ? "/candidate/interviews" : "/recruiter/interviews";
+  // As of page load: a status change mid-call isn't broadcast to the room.
+  const ended = status === "COMPLETED" || status === "CANCELLED" || status === "NO_SHOW";
 
   // Defined once and placed in two different containers — the rail beside the
   // editor, and the slide-in panel when the call owns the screen. Same markup
   // either way, so the two modes can't drift apart.
   const participantsBlock = (
-    <div className="shrink-0 overflow-hidden rounded-lg border bg-card">
-      <h2 className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-        Participants
+    <div className="shrink-0 px-3.5 pb-3">
+      <h2 className="border-b pb-2 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+        Participants · {onlineCount} of {roster.length} here
       </h2>
-      <ul className="flex flex-col gap-1.5 px-3 py-2.5 text-sm">
+      <ul className="flex flex-col text-[13.5px]">
         {roster.map((entry) => {
           const online = connectedIds.includes(entry.userId);
           return (
-            <li key={entry.userId} className="flex items-center justify-between gap-2">
-              <span className="flex min-w-0 items-center gap-2">
-                <span
-                  aria-hidden="true"
-                  className={`size-2 shrink-0 rounded-full ${
-                    online ? "bg-emerald-500" : "bg-muted-foreground/40"
-                  }`}
-                />
-                <span className="truncate">
+            <li key={entry.userId} className="flex items-center justify-between gap-2 py-[9px]">
+              <span className="flex min-w-0 items-center gap-[9px]">
+                <StatusGlyph shape={online ? "square" : "hollow"} tone={online ? "success" : "neutral"} />
+                <span className={cn("truncate", !online && "text-muted-foreground")}>
                   {entry.name}
                   {entry.userId === currentUserId && " (you)"}
                 </span>
               </span>
-              <span className="shrink-0 text-xs text-muted-foreground">
+              <span className="shrink-0 text-xs text-muted-foreground capitalize">
                 {online ? entry.role.toLowerCase() : "away"}
               </span>
             </li>
@@ -415,30 +423,35 @@ export function InterviewRoom({
   );
 
   const chatBlock = (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
-      <h2 className="shrink-0 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+    <div className="flex min-h-0 flex-1 flex-col border-t">
+      <h2 className="shrink-0 px-3.5 pt-3 pb-1.5 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
         Chat
       </h2>
-      <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-2.5 text-sm">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3.5 py-1.5 text-[13.5px] leading-normal">
         {messages.length === 0 ? (
           <span className="text-muted-foreground">No messages yet.</span>
         ) : (
           messages.map((message) => (
             <div key={message.id} className="break-words">
-              <span className="font-medium">{nameFor(message.userId)}:</span> {message.body}
+              <div className="mb-[3px] text-[11.5px] text-muted-foreground">
+                {nameFor(message.userId)} ·{" "}
+                {new Date(message.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}
+              </div>
+              {message.body}
             </div>
           ))
         )}
         <div ref={chatEndRef} />
       </div>
-      <form onSubmit={sendMessage} className="flex shrink-0 gap-2 border-t p-2">
+      <form onSubmit={sendMessage} className="flex shrink-0 gap-2 border-t px-3.5 py-3">
         <Input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Say something…"
+          placeholder="Message"
           aria-label="Chat message"
+          className="h-8"
         />
-        <Button type="submit" size="sm" disabled={!provider}>
+        <Button type="submit" variant="outline" disabled={!provider}>
           Send
         </Button>
       </form>
@@ -450,114 +463,88 @@ export function InterviewRoom({
   );
 
   return (
+    // Dark in both themes, deliberately: a camera tile is a lit face, and on a
+    // light page every tile reads as a hole punched in the paper. The theme
+    // switch changes the app around the room, not the room itself.
+    //
     // `min-h-0` at every level of this chain is what lets the editor pane
     // resolve a real height. A flex child defaults to `min-height: auto`,
     // which refuses to shrink below its content — so without these, the
     // editor's own height never resolves and Monaco measures nothing.
-    <div className="flex h-[calc(100vh-2rem)] flex-col gap-3">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border bg-card px-4 py-3">
-        <div className="min-w-0">
-          <h1 className="truncate text-sm font-semibold">
-            {candidateName} — {jobTitle}
-          </h1>
-          {/* suppressHydrationWarning because toLocaleString resolves against
-              whichever runtime formats it: the server's timezone during SSR
-              (UTC on Vercel), the viewer's in the browser. The viewer's is the
-              correct one — the same reasoning as scheduled-at-field.tsx — so
-              the mismatch is expected rather than a defect to design around,
-              and the client value replaces it on the first re-render. */}
-          <p className="truncate text-xs text-muted-foreground" suppressHydrationWarning>
-            {scheduledAt.toLocaleString(undefined, {
-              dateStyle: "medium",
-              timeStyle: "short",
-            })}{" "}
-            · {durationMins} min · you are the {role.toLowerCase()}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Badge variant="outline">{status}</Badge>
-          {recordingState === "recording" && (
-            <Badge variant="destructive" aria-live="polite">
-              <span aria-hidden="true" className="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-current motion-reduce:animate-none" />
-              Recording
-            </Badge>
-          )}
-          {recordingState === "processing" && <Badge variant="outline">Saving recording…</Badge>}
-          {role === "INTERVIEWER" &&
-            recordingAvailable &&
-            (recordingState === "idle" || recordingState === "failed" || recordingState === "recording") && (
-              <Button
-                size="sm"
-                variant={recordingState === "recording" ? "destructive" : "outline"}
-                disabled={recordingBusy}
-                onClick={handleRecordingToggle}
-              >
-                {recordingState === "recording" ? "Stop recording" : "Record"}
-              </Button>
-            )}
-          <Badge
-            variant={
-              connectionCopy.tone === "ok"
-                ? "secondary"
-                : connectionCopy.tone === "bad"
-                  ? "destructive"
-                  : "outline"
-            }
-          >
-            {connectionCopy.label}
-          </Badge>
-          {/* People and chat are always on screen in the rail alongside the
-              editor, so these only earn their place once the call has taken
-              over the room. */}
-          {editorHidden && (
-            <>
-              <Button
-                size="sm"
-                variant={sidePanel === "people" ? "secondary" : "outline"}
-                aria-pressed={sidePanel === "people"}
-                onClick={() => setSidePanel((open) => (open === "people" ? null : "people"))}
-              >
-                People ({onlineCount})
-              </Button>
-              <Button
-                size="sm"
-                variant={sidePanel === "chat" ? "secondary" : "outline"}
-                aria-pressed={sidePanel === "chat"}
-                onClick={() => setSidePanel((open) => (open === "chat" ? null : "chat"))}
-              >
-                Chat
-              </Button>
-            </>
-          )}
-          <Button size="sm" variant="outline" onClick={toggleFullscreen}>
-            {fullscreen ? "Exit full screen" : "Full screen"}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setEditorHidden((hidden) => !hidden)}
-          >
-            {editorHidden ? "Show editor" : "Hide editor"}
-          </Button>
-        </div>
-      </header>
+    <div className="dark relative flex h-dvh flex-col bg-[oklch(0.155_0.004_85)] text-foreground">
+      <RoomHeader
+        title={`${candidateName} · ${jobTitle}`}
+        subtitle={
+          // suppressHydrationWarning because toLocaleString resolves against
+          // whichever runtime formats it: the server's timezone during SSR
+          // (UTC on Vercel), the viewer's in the browser. The viewer's is the
+          // correct one — the same reasoning as scheduled-at-field.tsx — so
+          // the mismatch is expected rather than a defect to design around,
+          // and the client value replaces it on the first re-render.
+          <span suppressHydrationWarning>
+            {scheduledAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })} · {durationMins} min ·
+            you are the {role.toLowerCase()}
+          </span>
+        }
+        leaveHref={leaveHref}
+        connection={connection}
+        recordingState={recordingState}
+        scheduledAt={scheduledAt}
+        durationMins={durationMins}
+      />
 
-      {role === "CANDIDATE" && (
-        <p className="shrink-0 rounded-lg border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
-          {INTEGRITY_DISCLOSURE.summary} {INTEGRITY_DISCLOSURE.detail}
-        </p>
+      {(role === "CANDIDATE" ||
+        connection === "reconnecting" ||
+        connection === "disconnected" ||
+        connection === "unauthorized" ||
+        ended) && (
+        <div className="flex shrink-0 flex-col gap-2 border-b px-5 py-2.5">
+          {ended && (
+            <CalloutBanner
+              tone="info"
+              title={status === "COMPLETED" ? "This interview is complete" : "This interview is closed"}
+              action={
+                <Button variant="outline" size="sm" nativeButton={false} render={<Link href={leaveHref}>Back to interviews</Link>} />
+              }
+            >
+              {role === "INTERVIEWER" && status === "COMPLETED"
+                ? "Feedback is due within 24 hours — write it from the interview's page."
+                : "The editor and chat stay readable here; nothing new is recorded."}
+            </CalloutBanner>
+          )}
+          {(connection === "reconnecting" || connection === "disconnected") && (
+            <CalloutBanner tone="warning" title="Connection lost — reconnecting" pulse role="status">
+              Your code is kept in the shared document and syncs when the connection returns.
+            </CalloutBanner>
+          )}
+          {connection === "unauthorized" && (
+            <CalloutBanner tone="danger" title="Your session for this interview expired" role="alert">
+              Reload the page to rejoin. Nothing you wrote is lost.
+            </CalloutBanner>
+          )}
+          {role === "CANDIDATE" && provider && interviewersHere.length === 0 && (
+            <CalloutBanner tone="info" title={`Waiting for ${interviewerNames.join(" and ") || "your interviewer"}`} role="status">
+              You are in the room and the editor is ready. The interview starts when they join.
+            </CalloutBanner>
+          )}
+          {role === "CANDIDATE" && (
+            <p className="text-xs text-muted-foreground">
+              {INTEGRITY_DISCLOSURE.summary} {INTEGRITY_DISCLOSURE.detail}
+            </p>
+          )}
+        </div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* Deliberately not a <Card>: its `overflow-hidden` and
             `--card-spacing` padding break the parent chain Monaco measures
             itself against, which is what collapsed the editor to a few
-            pixels wide. A plain bordered box looks the same and measures. */}
+            pixels wide. A plain box measures. */}
         {!editorHidden && (
-          <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
-            <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs text-muted-foreground">shared editor</span>
+          <section className="flex min-h-[420px] min-w-0 flex-1 flex-col overflow-hidden lg:min-h-0 lg:border-r">
+            <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b px-4">
+              <div className="flex items-center gap-3">
+                <span className="hidden font-mono text-xs text-muted-foreground sm:inline">shared editor</span>
                 <select
                   aria-label="Language"
                   value={language}
@@ -565,27 +552,27 @@ export function InterviewRoom({
                   onChange={(event) =>
                     handleLanguageChange(event.target.value as SupportedLanguage)
                   }
-                  className="h-6 rounded-md border border-input bg-transparent px-1.5 font-mono text-xs text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
+                  className="h-[26px] border border-input bg-transparent px-2.5 font-mono text-[11.5px] text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
                 >
                   {supportedLanguageSchema.options.map((option) => (
-                    <option key={option} value={option}>
+                    <option key={option} value={option} className="bg-background">
                       {option}
                     </option>
                   ))}
                 </select>
-                <Button size="sm" disabled={!provider || executing} onClick={handleRunCode}>
+                <Button size="sm" className="h-[26px] px-3.5" disabled={!provider || executing} onClick={handleRunCode}>
                   {executing ? "Running…" : "Run"}
                 </Button>
               </div>
-              <span className="text-xs text-muted-foreground">
-                {onlineCount} of {roster.length} here
+              <span className="font-mono text-[11.5px] text-muted-foreground">
+                {onlineCount} of {roster.length} here · synced
               </span>
             </div>
-            <div className="min-h-0 flex-1">
+            <div className="min-h-0 flex-1 bg-well">
               {provider ? (
                 <CodeEditor provider={provider} language={language} />
               ) : (
-                <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                <div className="flex h-full items-center justify-center px-6 text-center font-mono text-[13px] text-muted-foreground">
                   {connection === "unauthorized"
                     ? "Your session for this interview expired. Reload the page."
                     : "Connecting…"}
@@ -593,38 +580,38 @@ export function InterviewRoom({
               )}
             </div>
             {executionResult && (
-              <div className="flex max-h-56 shrink-0 flex-col gap-1.5 overflow-y-auto border-t px-3 py-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant={
-                      executionResult.status === "SUCCEEDED"
-                        ? "secondary"
-                        : executionResult.status === "FAILED" || executionResult.status === "TIMEOUT"
-                          ? "destructive"
-                          : "outline"
-                    }
-                  >
-                    {executionResult.status}
-                  </Badge>
-                  {executionResult.timeMs != null && (
-                    <span className="text-muted-foreground">{executionResult.timeMs} ms</span>
+              <div className="flex max-h-56 shrink-0 flex-col border-t">
+                <div className="flex h-[38px] shrink-0 items-center gap-3.5 border-b border-hairline px-4">
+                  <span className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">Output</span>
+                  {(() => {
+                    const display = EXECUTION_STATUS[executionResult.status];
+                    return (
+                      <StatusBadge tone={display.tone} shape={display.shape} size="sm">
+                        {display.label}
+                      </StatusBadge>
+                    );
+                  })()}
+                  <span className="font-mono text-[11.5px] text-muted-foreground">
+                    {[
+                      executionResult.timeMs != null && `${executionResult.timeMs} ms`,
+                      executionResult.memoryKb != null && `${(executionResult.memoryKb / 1024).toFixed(1)} MB`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                </div>
+                <div className="overflow-y-auto">
+                  {executionResult.stdout && (
+                    <pre className="px-4 py-3 font-mono text-[13px] leading-relaxed whitespace-pre-wrap text-foreground/90">
+                      {executionResult.stdout}
+                    </pre>
                   )}
-                  {executionResult.memoryKb != null && (
-                    <span className="text-muted-foreground">
-                      {(executionResult.memoryKb / 1024).toFixed(1)} MB
-                    </span>
+                  {executionResult.stderr && (
+                    <pre className="px-4 py-3 font-mono text-[13px] leading-relaxed whitespace-pre-wrap text-(--tone-danger-fg)">
+                      {executionResult.stderr}
+                    </pre>
                   )}
                 </div>
-                {executionResult.stdout && (
-                  <pre className="whitespace-pre-wrap rounded bg-muted/50 p-2 font-mono">
-                    {executionResult.stdout}
-                  </pre>
-                )}
-                {executionResult.stderr && (
-                  <pre className="whitespace-pre-wrap rounded bg-destructive/10 p-2 font-mono text-destructive">
-                    {executionResult.stderr}
-                  </pre>
-                )}
               </div>
             )}
           </section>
@@ -645,28 +632,71 @@ export function InterviewRoom({
               ? // The call gets the whole row. Nothing else competes for
                 // height here — that competition is exactly what left the
                 // video letterboxed in a short band with dead space beneath.
-                "flex min-h-0 min-w-0 flex-1 flex-col"
-              : "flex shrink-0 flex-col gap-3 lg:h-full lg:w-[360px]"
+                "flex min-h-0 min-w-0 flex-1 flex-col p-3.5 pb-20"
+              : "flex shrink-0 flex-col pb-20 lg:h-full lg:w-[348px] lg:pb-0"
           }
         >
-          {videoBlock}
+          {videoBlock && <div className={cn("flex min-h-0 flex-col", editorHidden ? "flex-1" : "p-3.5")}>{videoBlock}</div>}
           {/* Alongside the editor these share the rail with the call; once the
-              call owns the room they move behind the header toggles. Safe to
+              call owns the room they move behind the dock toggles. Safe to
               move, unlike the call: every piece of their state (messages,
               draft, roster) lives up here, so remounting them costs nothing. */}
           {!editorHidden && (
             <>
-              {participantsBlock}
+              <div className={cn(!videoBlock && "pt-3.5")}>{participantsBlock}</div>
               {chatBlock}
             </>
           )}
         </div>
 
         {editorHidden && sidePanel && (
-          <aside className="flex w-full shrink-0 flex-col gap-3 lg:h-full lg:w-[360px]">
+          <aside className="flex w-full shrink-0 flex-col border-l pt-3.5 pb-20 lg:h-full lg:w-[348px]">
             {sidePanel === "people" ? participantsBlock : chatBlock}
           </aside>
         )}
+      </div>
+
+      <div className="pointer-events-none absolute inset-x-0 bottom-6 flex justify-center px-4">
+        <RoomDock>
+          <DockButton pressed={editorHidden} onClick={() => setEditorHidden((hidden) => !hidden)}>
+            {editorHidden ? "Show editor" : "Hide editor"}
+          </DockButton>
+          {/* People and chat are always on screen in the rail alongside the
+              editor, so these only earn their place once the call has taken
+              over the room. */}
+          {editorHidden && (
+            <>
+              <DockButton
+                pressed={sidePanel === "people"}
+                onClick={() => setSidePanel((open) => (open === "people" ? null : "people"))}
+              >
+                People · {onlineCount}
+              </DockButton>
+              <DockButton
+                pressed={sidePanel === "chat"}
+                onClick={() => setSidePanel((open) => (open === "chat" ? null : "chat"))}
+              >
+                Chat
+              </DockButton>
+            </>
+          )}
+          <DockButton pressed={fullscreen} onClick={toggleFullscreen}>
+            {fullscreen ? "Exit full screen" : "Full screen"}
+          </DockButton>
+          {canRecord && (
+            <>
+              <DockDivider />
+              <DockButton disabled={recordingBusy} onClick={handleRecordingToggle}>
+                <StatusGlyph
+                  shape={recordingState === "recording" ? "square" : "dot"}
+                  tone="danger"
+                  className={cn(recordingState === "recording" && "animate-rec-pulse")}
+                />
+                {recordingState === "recording" ? "Stop recording" : "Record"}
+              </DockButton>
+            </>
+          )}
+        </RoomDock>
       </div>
     </div>
   );

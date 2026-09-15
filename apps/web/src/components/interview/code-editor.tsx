@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import * as monaco from "monaco-editor";
 import Editor, { loader, type OnMount } from "@monaco-editor/react";
 import { MonacoBinding } from "y-monaco";
+import { defineWellTheme, WELL_THEME } from "./editor-theme";
 import type { SocketYjsProvider } from "./socket-yjs-provider";
 
 // Without this, @monaco-editor/react fetches its own copy of Monaco from a
@@ -139,7 +140,8 @@ export function CodeEditor({ provider, language }: CodeEditorProps) {
         // editor would each pick a different height.
         height="100%"
         language={language}
-        theme="vs-dark"
+        theme={WELL_THEME}
+        beforeMount={defineWellTheme}
         onMount={handleMount}
         options={{ automaticLayout: true, minimap: { enabled: false }, fontSize: 14 }}
       />

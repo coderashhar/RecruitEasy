@@ -85,6 +85,33 @@ async function loadPending(orgId: string, requestId: string) {
   return request;
 }
 
+export interface DeletionScope {
+  applications: number;
+  interviews: number;
+  files: number;
+  hasAccount: boolean;
+}
+
+/**
+ * What approving a request would delete, counted now — shown in the confirm
+ * dialog so an admin reads the size of the decision before making it. Uses
+ * the same pending-in-this-org check as processing, so it can't be pointed at
+ * another org's request.
+ */
+export async function getDeletionScope(orgId: string, requestId: string): Promise<DeletionScope> {
+  const request = await loadPending(orgId, requestId);
+  const candidateId = request.user?.id;
+  if (!candidateId) return { applications: 0, interviews: 0, files: 0, hasAccount: false };
+
+  const [applications, interviews, resumes, recordings] = await Promise.all([
+    prisma.application.count({ where: { candidateId } }),
+    prisma.interview.count({ where: { application: { candidateId } } }),
+    prisma.resume.count({ where: { application: { candidateId } } }),
+    prisma.recording.count({ where: { interview: { application: { candidateId } }, fileKey: { not: null } } }),
+  ]);
+  return { applications, interviews, files: resumes + recordings, hasAccount: true };
+}
+
 export interface DeletionSummary {
   applications: number;
   filesDeleted: number;

@@ -45,12 +45,13 @@ function Tile({ track, label }: { track: TrackRef; label: string }) {
   const isScreenShare = track.source === Track.Source.ScreenShare;
 
   return (
-    <div className="relative min-h-0 overflow-hidden rounded-md bg-black">
+    <div className="relative min-h-0 overflow-hidden bg-[oklch(0.19_0.004_85)]">
       <VideoTrack
         trackRef={track}
         className={`h-full w-full ${isScreenShare ? "object-contain" : "object-cover"}`}
       />
-      <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[11px] leading-none text-white">
+      {/* Its own 72% scrim, so the name never depends on what the camera shows. */}
+      <span className="absolute bottom-2 left-2 bg-[oklch(0.12_0_0/0.72)] px-[7px] py-0.5 text-[11.5px] text-[oklch(0.96_0_0)]">
         {label}
       </span>
     </div>
@@ -97,7 +98,7 @@ function VideoStage({ fill }: { fill: boolean }) {
 
   if (tracks.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-white/60">
+      <div className="flex h-full items-center justify-center font-mono text-xs text-muted-foreground">
         Waiting for video…
       </div>
     );
@@ -128,7 +129,7 @@ function VideoStage({ fill }: { fill: boolean }) {
     <div className="relative h-full w-full bg-black">
       {main && <Tile track={main} label={labelFor(main)} />}
       {showSelfView && localCamera && (
-        <div className="absolute right-4 bottom-4 aspect-video w-44 overflow-hidden rounded-lg border-2 border-white/70 shadow-xl md:w-56">
+        <div className="absolute right-4 bottom-4 aspect-video w-44 overflow-hidden border border-input md:w-56">
           <Tile track={localCamera} label={labelFor(localCamera)} />
         </div>
       )}
@@ -154,31 +155,44 @@ export function VideoPanel({ serverUrl, token, fill = false }: VideoPanelProps) 
   // joining doesn't make everything below it jump.
   const sizeClassName = fill
     ? "min-h-0 flex-1"
-    : "min-h-64 flex-[3]";
+    : "aspect-[4/3] lg:aspect-auto lg:min-h-64 lg:flex-[3]";
 
   if (!joined) {
     return (
       <div
-        className={`flex ${sizeClassName} flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-6 text-center`}
+        className={`flex ${sizeClassName} flex-col items-start justify-center gap-3.5 bg-[repeating-linear-gradient(135deg,oklch(0.2_0.004_85)_0_10px,oklch(0.18_0.004_85)_10px_20px)] p-6`}
       >
-        <p className="text-sm text-muted-foreground">
+        <div className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">Video · not joined</div>
+        <p className="max-w-[260px] text-[13.5px] leading-relaxed text-foreground/80">
           Your camera and microphone stay off until you join.
         </p>
         <button
           type="button"
-          onClick={() => setJoined(true)}
-          className="inline-flex h-8 items-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/80 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+          onClick={() => {
+            setError(null);
+            setJoined(true);
+          }}
+          className="inline-flex h-9 items-center bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/85 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
         >
           Join call
         </button>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && (
+          <div role="alert" className="border-l-2 border-danger bg-(--callout-danger-bg) px-3 py-2.5 text-[13px] text-(--callout-danger-fg)">
+            <div className="font-semibold">Could not join the call</div>
+            <div className="mt-1 opacity-90">
+              {/permission|notallowed|denied/i.test(error)
+                ? "Your browser is blocking the camera or microphone. Allow both in the site settings, then try again."
+                : error}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
   return (
     <div
-      className={`flex ${sizeClassName} flex-col overflow-hidden rounded-lg border bg-black`}
+      className={`flex ${sizeClassName} flex-col overflow-hidden bg-[oklch(0.135_0.004_85)]`}
       data-lk-theme="default"
     >
       <LiveKitRoom

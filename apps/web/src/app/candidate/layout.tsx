@@ -1,8 +1,12 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { requireRole } from "@/lib/auth";
+import { requireCurrentUser } from "@/lib/users";
 import type { ReactNode } from "react";
 
 export default async function CandidateLayout({ children }: { children: ReactNode }) {
-  await requireRole(["CANDIDATE"]);
-  return <AppShell title="Candidate">{children}</AppShell>;
+  const { user, role } = await requireCurrentUser(["CANDIDATE"]);
+  return (
+    <AppShell role={role} user={user}>
+      {children}
+    </AppShell>
+  );
 }

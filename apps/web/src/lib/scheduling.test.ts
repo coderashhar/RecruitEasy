@@ -32,7 +32,7 @@ vi.mock("./interview-notices", () => ({
 // after() needs a live request scope; run the callback inline instead.
 vi.mock("next/server", () => ({ after: (callback: () => unknown) => callback() }));
 
-const { scheduleInterviewForOrg, SchedulingError } = await import("./scheduling.js");
+const { scheduleInterviewForOrg, SchedulingError, getInterviewerBusy } = await import("./scheduling.js");
 
 const ORG_ID = "org_1";
 const ACTOR_ID = "user_recruiter";
@@ -228,5 +228,31 @@ describe("scheduleInterviewForOrg", () => {
         }),
       );
     });
+  });
+});
+
+describe("getInterviewerBusy", () => {
+  beforeEach(() => findManyParticipant.mockReset());
+
+  test("scopes the lookup to the caller's org", async () => {
+    findManyParticipant.mockResolvedValue([]);
+    await getInterviewerBusy(ORG_ID, ["a"], new Date("2026-10-05T00:00:00Z"), new Date("2026-10-12T00:00:00Z"));
+    expect(findManyParticipant.mock.calls[0][0].where.user).toEqual({ id: { in: ["a"] }, orgId: ORG_ID });
+  });
+
+  test("drops interviews that ended before the window", async () => {
+    findManyParticipant.mockResolvedValue([
+      { userId: "a", interview: { scheduledAt: new Date("2026-10-04T22:00:00Z"), durationMins: 60 } },
+      { userId: "a", interview: { scheduledAt: new Date("2026-10-04T23:30:00Z"), durationMins: 60 } },
+    ]);
+    const busy = await getInterviewerBusy(ORG_ID, ["a"], new Date("2026-10-05T00:00:00Z"), new Date("2026-10-12T00:00:00Z"));
+    expect(busy).toEqual([
+      { interviewerId: "a", start: "2026-10-04T23:30:00.000Z", end: "2026-10-05T00:30:00.000Z" },
+    ]);
+  });
+
+  test("asks for nothing when no interviewers are chosen", async () => {
+    expect(await getInterviewerBusy(ORG_ID, [], new Date(), new Date())).toEqual([]);
+    expect(findManyParticipant).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,12 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { requireRole } from "@/lib/auth";
+import { requireCurrentUser } from "@/lib/users";
 import type { ReactNode } from "react";
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {
-  await requireRole(["ADMIN"]);
-  return <AppShell title="Admin">{children}</AppShell>;
+  const { user, role } = await requireCurrentUser(["ADMIN"]);
+  return (
+    <AppShell role={role} user={user}>
+      {children}
+    </AppShell>
+  );
 }

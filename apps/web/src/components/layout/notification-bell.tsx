@@ -89,16 +89,16 @@ export function NotificationBell() {
           <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
         </svg>
         {count > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium leading-none text-destructive-foreground">
+          <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 font-mono text-[10px] leading-none text-danger-foreground">
             {count > 99 ? "99+" : count}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-80 rounded-lg border bg-card shadow-lg">
-          <div className="flex items-center justify-between border-b px-3 py-2">
-            <span className="text-sm font-medium">Notifications</span>
+        <div className="absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] border bg-popover">
+          <div className="flex items-center justify-between border-b border-rule-strong px-3.5 py-2.5">
+            <span className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">Notifications</span>
             {count > 0 && (
               <button
                 type="button"

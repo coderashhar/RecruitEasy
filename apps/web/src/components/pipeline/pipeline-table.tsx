@@ -3,7 +3,18 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
+import { ChevronDownIcon } from "lucide-react";
+import type { ApplicationStatus } from "@interviewhub/db";
+import { APPLICATION_STATUS, ApplicationStatusBadge, StatusGlyph } from "@/components/broadsheet/status-badge";
+import { ScoreBar } from "@/components/broadsheet/measures";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -13,10 +24,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { ApplicationStatus } from "@interviewhub/db";
-import { ApplicationStatusSelect } from "./application-status-select";
-import { ShortlistToggle } from "./shortlist-toggle";
 import { bulkChangeApplicationStatus } from "@/app/recruiter/applications/actions";
+import { cn } from "@/lib/utils";
+import { ShortlistToggle } from "./shortlist-toggle";
 
 export interface PipelineRow {
   applicationId: string;
@@ -36,10 +46,22 @@ const ALL_STATUSES: ApplicationStatus[] = [
   "REJECTED",
 ];
 
+const COMPARE_MIN = 2;
+const COMPARE_MAX = 4;
+
 type SortField = "name" | "score";
 type SortDir = "asc" | "desc";
 
-export function PipelineTable({ rows: initial }: { rows: PipelineRow[] }) {
+const controlClass =
+  "h-[30px] border border-border bg-transparent px-[11px] text-[13px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+
+/**
+ * `canManage` is false for interviewers: they read the pipeline and compare
+ * candidates, but moving applications and shortlisting stay with recruiters.
+ * The Server Actions enforce that regardless; this only avoids offering
+ * controls that would be refused.
+ */
+export function PipelineTable({ rows: initial, canManage = true }: { rows: PipelineRow[]; canManage?: boolean }) {
   const [rows, setRows] = useState(initial);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<ApplicationStatus | "">("");
@@ -97,21 +119,17 @@ export function PipelineTable({ rows: initial }: { rows: PipelineRow[] }) {
     }
   }
 
-  function toggleSelect(id: string) {
+  function toggleSelect(id: string, checked: boolean) {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (checked) next.add(id);
+      else next.delete(id);
       return next;
     });
   }
 
-  function toggleAll() {
-    if (selected.size === filtered.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(filtered.map((row) => row.applicationId)));
-    }
+  function toggleAll(checked: boolean) {
+    setSelected(checked ? new Set(filtered.map((row) => row.applicationId)) : new Set());
   }
 
   function handleBulkStatus(status: ApplicationStatus) {
@@ -127,146 +145,213 @@ export function PipelineTable({ rows: initial }: { rows: PipelineRow[] }) {
           ),
         );
         setSelected(new Set());
-        toast.success(`${ids.length} application${ids.length > 1 ? "s" : ""} moved to ${status}.`);
+        toast.success(
+          `${ids.length} application${ids.length > 1 ? "s" : ""} moved to ${APPLICATION_STATUS[status].label}.`,
+        );
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Bulk update failed.");
       }
     });
   }
 
-  const sortIndicator = (field: SortField) =>
-    sortField === field ? (sortDir === "asc" ? " \u25b2" : " \u25bc") : "";
+  const sortLabel = `sorted by ${sortField === "score" ? "ATS" : "name"} ${sortDir === "asc" ? "▲" : "▼"}`;
+  const allSelected = filtered.length > 0 && filtered.every((row) => selected.has(row.applicationId));
+  const someSelected = !allSelected && filtered.some((row) => selected.has(row.applicationId));
+  const canCompare = selected.size >= COMPARE_MIN && selected.size <= COMPARE_MAX;
 
   return (
-    <div className="space-y-3">
-      {/* Controls */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          placeholder="Search candidate or job…"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          className="h-8 w-48"
-        />
-        <select
-          value={filterStatus}
-          onChange={(event) => setFilterStatus(event.target.value as ApplicationStatus | "")}
-          className="h-8 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-          aria-label="Filter by status"
-        >
-          <option value="">All statuses</option>
-          {ALL_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={shortlistedOnly}
-            onChange={(event) => setShortlistedOnly(event.target.checked)}
-          />
-          Shortlisted only
-        </label>
-
-        {selected.size > 0 && (
-          <div className="flex items-center gap-1.5 ml-auto">
-            <span className="text-xs text-muted-foreground">{selected.size} selected</span>
-            {selected.size >= 2 && selected.size <= 4 ? (
-              <Button
-                size="sm"
-                className="h-7 text-xs"
-                nativeButton={false}
-                render={<Link href={`/recruiter/compare?ids=${[...selected].join(",")}`}>Compare</Link>}
-              />
-            ) : (
-              <span className="text-xs text-muted-foreground">Select 2–4 to compare</span>
-            )}
-            {ALL_STATUSES.map((s) => (
-              <Button
-                key={s}
-                size="sm"
-                variant="outline"
-                disabled={isPending}
-                onClick={() => handleBulkStatus(s)}
-                className="h-7 text-xs"
-              >
-                {s}
-              </Button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Table */}
-      {filtered.length === 0 ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">No matching applications.</p>
+    <div>
+      {selected.size > 0 ? (
+        // The bulk bar takes the filter row's place rather than stacking above
+        // it, so selecting a row never pushes the table down.
+        <div className="flex min-h-[30px] flex-wrap items-center gap-2.5">
+          <span className="font-mono text-[11.5px] text-muted-foreground tabular-nums">{selected.size} selected</span>
+          {canCompare ? (
+            <Button
+              size="sm"
+              variant="ink"
+              nativeButton={false}
+              render={<Link href={`/recruiter/compare?ids=${[...selected].join(",")}`}>Compare</Link>}
+            />
+          ) : (
+            <span className="text-[13px] text-muted-foreground">
+              Select {COMPARE_MIN}–{COMPARE_MAX} to compare
+            </span>
+          )}
+          {canManage && (
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button size="sm" variant="outline" disabled={isPending} />}>
+                Move to
+                <ChevronDownIcon className="size-3.5 text-muted-foreground" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-44" align="start">
+                {ALL_STATUSES.map((status) => {
+                  const display = APPLICATION_STATUS[status];
+                  return (
+                    <DropdownMenuItem key={status} onClick={() => handleBulkStatus(status)}>
+                      <StatusGlyph shape={display.shape} tone={display.tone} />
+                      {display.label}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            className="ml-auto text-[13px] text-primary hover:underline"
+          >
+            Clear selection
+          </button>
+        </div>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-8">
-                <input
-                  type="checkbox"
-                  checked={selected.size === filtered.length && filtered.length > 0}
-                  onChange={toggleAll}
-                  aria-label="Select all"
-                />
-              </TableHead>
-              <TableHead className="w-8">
-                <span className="sr-only">Shortlisted</span>
-              </TableHead>
-              <TableHead>
-                <button type="button" onClick={() => toggleSort("name")} className="font-medium">
-                  Candidate{sortIndicator("name")}
-                </button>
-              </TableHead>
-              <TableHead>Job</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>
-                <button type="button" onClick={() => toggleSort("score")} className="font-medium">
-                  ATS score{sortIndicator("score")}
-                </button>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.map((row) => (
-              <TableRow key={row.applicationId}>
-                <TableCell>
-                  <input
-                    type="checkbox"
-                    checked={selected.has(row.applicationId)}
-                    onChange={() => toggleSelect(row.applicationId)}
-                    aria-label={`Select ${row.candidateName}`}
-                  />
-                </TableCell>
-                <TableCell>
-                  <ShortlistToggle
-                    applicationId={row.applicationId}
-                    candidateName={row.candidateName}
-                    shortlisted={row.shortlisted}
-                    onChange={(next) => setRowShortlisted(row.applicationId, next)}
-                  />
-                </TableCell>
-                <TableCell className="font-medium">
-                  <Link href={`/recruiter/candidates/${row.applicationId}`} className="hover:underline">
-                    {row.candidateName}
-                  </Link>
-                </TableCell>
-                <TableCell>{row.jobTitle}</TableCell>
-                <TableCell>
-                  <ApplicationStatusSelect
-                    applicationId={row.applicationId}
-                    status={row.status}
-                    statuses={ALL_STATUSES}
-                  />
-                </TableCell>
-                <TableCell>{row.atsScore != null ? `${row.atsScore}/100` : "—"}</TableCell>
-              </TableRow>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Input
+            placeholder="Search candidate or job"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="h-[30px] w-full border-border text-[13px] sm:w-[210px]"
+            aria-label="Search candidate or job"
+          />
+          <select
+            value={filterStatus}
+            onChange={(event) => setFilterStatus(event.target.value as ApplicationStatus | "")}
+            className={controlClass}
+            aria-label="Filter by status"
+          >
+            <option value="">All statuses</option>
+            {ALL_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {APPLICATION_STATUS[status].label}
+              </option>
             ))}
-          </TableBody>
-        </Table>
+          </select>
+          <button
+            type="button"
+            aria-pressed={shortlistedOnly}
+            onClick={() => setShortlistedOnly((value) => !value)}
+            className={cn(
+              controlClass,
+              "inline-flex items-center gap-[7px] transition-colors",
+              shortlistedOnly ? "border-foreground font-medium text-foreground" : "text-muted-foreground",
+            )}
+          >
+            <span className="text-primary">★</span>
+            Shortlisted only
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleSort(sortField === "score" ? "name" : "score")}
+            className="ml-auto font-mono text-[11.5px] text-muted-foreground hover:text-foreground"
+          >
+            {sortLabel}
+          </button>
+        </div>
+      )}
+
+      {filtered.length === 0 ? (
+        <p className="mt-4 border-t border-rule-strong py-6 text-sm text-muted-foreground">
+          {rows.length === 0 ? "No applications yet." : "No applications match these filters."}
+        </p>
+      ) : (
+        <>
+          <Table className="mt-4 hidden text-sm md:table">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-7">
+                  <Checkbox
+                    checked={allSelected}
+                    indeterminate={someSelected}
+                    onCheckedChange={(checked) => toggleAll(checked)}
+                    aria-label="Select all"
+                  />
+                </TableHead>
+                <TableHead className="w-7 px-0">
+                  <span className="sr-only">Shortlisted</span>
+                </TableHead>
+                <TableHead>
+                  <button type="button" onClick={() => toggleSort("name")} className="uppercase hover:text-foreground">
+                    Candidate
+                  </button>
+                </TableHead>
+                <TableHead>Job</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">
+                  <button type="button" onClick={() => toggleSort("score")} className="uppercase hover:text-foreground">
+                    ATS score
+                  </button>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((row) => (
+                <TableRow key={row.applicationId} data-state={selected.has(row.applicationId) ? "selected" : undefined}>
+                  <TableCell>
+                    <Checkbox
+                      checked={selected.has(row.applicationId)}
+                      onCheckedChange={(checked) => toggleSelect(row.applicationId, checked)}
+                      aria-label={`Select ${row.candidateName}`}
+                    />
+                  </TableCell>
+                  <TableCell className="px-0">
+                    <ShortlistToggle
+                      applicationId={row.applicationId}
+                      candidateName={row.candidateName}
+                      shortlisted={row.shortlisted}
+                      disabled={!canManage}
+                      onChange={(next) => setRowShortlisted(row.applicationId, next)}
+                    />
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    <Link href={`/recruiter/candidates/${row.applicationId}`} className="hover:underline">
+                      {row.candidateName}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{row.jobTitle}</TableCell>
+                  <TableCell>
+                    <ApplicationStatusBadge status={row.status} />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <ScoreBar value={row.atsScore} suffix="/100" />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+
+          {/* At phone width a six-column table can't fit; each row becomes two lines instead. */}
+          <ul className="mt-4 border-t border-rule-strong md:hidden">
+            {filtered.map((row) => (
+              <li key={row.applicationId} className="flex items-start gap-3 border-b border-hairline py-[13px]">
+                <Checkbox
+                  className="mt-1"
+                  checked={selected.has(row.applicationId)}
+                  onCheckedChange={(checked) => toggleSelect(row.applicationId, checked)}
+                  aria-label={`Select ${row.candidateName}`}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2.5">
+                    <Link
+                      href={`/recruiter/candidates/${row.applicationId}`}
+                      className="truncate text-[14.5px] font-medium"
+                    >
+                      {row.candidateName}
+                      {row.shortlisted && <span className="ml-[7px] text-primary">★</span>}
+                    </Link>
+                    <span className="font-mono text-[12.5px] tabular-nums">
+                      {row.atsScore === null ? "—" : `${row.atsScore}/100`}
+                    </span>
+                  </div>
+                  <div className="mt-[7px] flex flex-wrap items-center gap-2.5">
+                    <span className="text-[13px] text-muted-foreground">{row.jobTitle}</span>
+                    <ApplicationStatusBadge status={row.status} size="sm" />
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );

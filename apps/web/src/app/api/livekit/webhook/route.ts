@@ -15,7 +15,9 @@ export async function POST(request: Request) {
   try {
     event = await verifyLiveKitWebhook(body, request.headers.get("authorization"));
   } catch {
-    return new Response(null, { status: 401 });
+    // LiveKit only reads the status, but a person testing the endpoint with
+    // curl deserves to know the signature was the problem.
+    return Response.json({ error: "Webhook signature could not be verified." }, { status: 401 });
   }
 
   if (event.egressInfo) {

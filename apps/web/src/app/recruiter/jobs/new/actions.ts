@@ -5,12 +5,20 @@ import { createJobSchema } from "@interviewhub/types";
 import { createJobForOrg } from "@/lib/jobs";
 import { requireCurrentUser } from "@/lib/users";
 
+export interface JobFormState {
+  error: string | null;
+}
+
 /**
  * Only RECRUITER/ADMIN may post a job — narrower than the recruiter section's
  * layout guard, which also lets INTERVIEWER browse it. Same split as
  * scheduleInterview: an interviewer runs interviews, they don't own the pipeline.
+ *
+ * Returns the message instead of throwing: a rejected title or description is
+ * something the recruiter fixes in the form they are already looking at, not
+ * a crash that should throw away what they typed.
  */
-export async function createJob(formData: FormData) {
+export async function createJob(_prev: JobFormState, formData: FormData): Promise<JobFormState> {
   const { user } = await requireCurrentUser(["RECRUITER", "ADMIN"]);
 
   const parsed = createJobSchema.safeParse({
@@ -22,10 +30,10 @@ export async function createJob(formData: FormData) {
   });
 
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? "Invalid input");
+    return { error: parsed.error.issues[0]?.message ?? "Check the form and try again." };
   }
 
   await createJobForOrg(user.orgId, user.id, parsed.data);
 
-  redirect("/recruiter");
+  redirect("/recruiter/jobs");
 }

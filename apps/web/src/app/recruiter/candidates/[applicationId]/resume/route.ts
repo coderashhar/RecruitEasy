@@ -1,5 +1,7 @@
+import { redirect } from "next/navigation";
 import { getLatestResumeKey } from "@/lib/candidate-profile";
-import { downloadFile } from "@/lib/storage";
+import type { ResumeIssue } from "@/lib/resume-availability";
+import { downloadFile, isStorageConfigured } from "@/lib/storage";
 import { requireCurrentUser } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +16,13 @@ const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
  * org. Served through the app, rather than a presigned R2 link, so every
  * download is authorized at the moment it happens and no link can be
  * forwarded to someone outside the org.
+ *
+ * When there is nothing to stream, it sends the recruiter back to the profile
+ * they clicked from with a reason, instead of stranding them on a bare line of
+ * text in an empty tab. The recruiter sees two outcomes — no file was ever
+ * uploaded, or the file can't be opened — while *why* it can't be opened
+ * (missing object versus unconfigured storage) goes to the server log, where
+ * the person who can act on it will look.
  */
 export async function GET(
   _request: Request,
@@ -22,14 +31,22 @@ export async function GET(
   const { applicationId } = await params;
   const { user } = await requireCurrentUser(["RECRUITER", "INTERVIEWER", "ADMIN"]);
 
+  // Explicitly typed as `never` so TypeScript narrows after each call, the
+  // same way it does for a bare `redirect()`.
+  const back: (issue: ResumeIssue) => never = (issue) =>
+    redirect(`/recruiter/candidates/${applicationId}?resume=${issue}`);
+
   const key = await getLatestResumeKey(user.orgId, applicationId);
-  if (!key) return new Response("No resume on file for this application.", { status: 404 });
+  if (!key) back("none");
 
   const file = await downloadFile(key);
   if (!file) {
-    return new Response("The resume file isn't available — file storage may not be configured.", {
-      status: 404,
-    });
+    console.warn(
+      isStorageConfigured()
+        ? `[resume] object missing from storage for application ${applicationId} (key ${key})`
+        : `[resume] file storage is not configured (R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY), so ${key} was never stored`,
+    );
+    back("unavailable");
   }
 
   const extension = key.split(".").pop()?.toLowerCase() ?? "";

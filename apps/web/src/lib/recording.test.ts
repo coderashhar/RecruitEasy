@@ -184,11 +184,13 @@ describe("startRecording", () => {
   });
 
   // Free plan: quotas are a hard stop, and the interviewer needs to know why.
-  test("a LiveKit refusal becomes a readable error and nothing is stored", async () => {
+  test("a refused recording becomes a readable error, with no vendor detail, and nothing is stored", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     startRoomCompositeEgress.mockRejectedValue(Object.assign(new Error("egress limit exceeded"), { code: "resource_exhausted", status: 429 }));
 
-    await expect(startRecording("user_i", "interview_1")).rejects.toThrow(/recording limit is used up/);
+    await expect(startRecording("user_i", "interview_1")).rejects.toThrow(/monthly limit has been reached/);
+    // The interviewer is told what it means for them, not which vendor refused.
+    await expect(startRecording("user_i", "interview_1")).rejects.not.toThrow(/LiveKit|egress|API key/i);
     expect(upsertRecording).not.toHaveBeenCalled();
     expect(broadcastToRoom).not.toHaveBeenCalled();
   });
@@ -199,7 +201,7 @@ describe("describeStartFailure", () => {
     expect(describeStartFailure({ code: "not_found", status: 404, message: "room does not exist" })).toMatch(
       /Join the video call first/,
     );
-    expect(describeStartFailure({ status: 403 })).toMatch(/API key/);
+    expect(describeStartFailure({ status: 403 })).toMatch(/refused for this room/);
     expect(describeStartFailure(new Error("boom"))).toMatch(/couldn't start/);
   });
 });
@@ -265,7 +267,7 @@ describe("applyEgressEvent", () => {
 
     expect(updateRecording).toHaveBeenCalledWith({
       where: { id: "rec_1" },
-      data: expect.objectContaining({ status: "READY", error: expect.stringMatching(/limit was reached/) }),
+      data: expect.objectContaining({ status: "READY", error: expect.stringMatching(/stopped at the monthly limit/) }),
     });
   });
 
@@ -279,10 +281,10 @@ describe("applyEgressEvent", () => {
 
     expect(updateRecording).toHaveBeenCalledWith({
       where: { id: "rec_1" },
-      data: { status: "FAILED", error: "LiveKit couldn't produce the recording." },
+      data: { status: "FAILED", error: "The recording couldn't be produced." },
     });
     expect(broadcastToRoom).toHaveBeenCalledWith(
-      expect.objectContaining({ state: "failed", message: "LiveKit couldn't produce the recording." }),
+      expect.objectContaining({ state: "failed", message: "The recording couldn't be produced." }),
     );
   });
 

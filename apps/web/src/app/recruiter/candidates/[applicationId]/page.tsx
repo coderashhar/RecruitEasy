@@ -15,7 +15,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { ApplicationStatusSelect } from "@/components/pipeline/application-status-select";
 import { ShortlistToggle } from "@/components/pipeline/shortlist-toggle";
+import { CalloutBanner } from "@/components/broadsheet/panels";
 import { getApplicationProfile } from "@/lib/candidate-profile";
+import { parseResumeIssue, resumeIssueCopy } from "@/lib/resume-availability";
 import { requireCurrentUser } from "@/lib/users";
 
 const ALL_STATUSES: ApplicationStatus[] = ["APPLIED", "SCREENING", "INTERVIEWING", "OFFER", "HIRED", "REJECTED"];
@@ -24,10 +26,14 @@ const SKILL_GROUP_LABEL = { matched: "Matched", partial: "Partial", missing: "Mi
 
 export default async function CandidateProfilePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ applicationId: string }>;
+  /** `?resume=` is set when the download route had nothing to serve. */
+  searchParams: Promise<{ resume?: string | string[] }>;
 }) {
-  const { applicationId } = await params;
+  const [{ applicationId }, { resume: resumeParam }] = await Promise.all([params, searchParams]);
+  const resumeIssue = parseResumeIssue(resumeParam);
   const { user, role } = await requireCurrentUser(["RECRUITER", "INTERVIEWER", "ADMIN"]);
 
   const profile = await getApplicationProfile(user.orgId, applicationId);
@@ -93,6 +99,17 @@ export default async function CandidateProfilePage({
           </>
         }
       />
+
+      {resumeIssue && (
+        <CalloutBanner
+          className="mt-6"
+          role="status"
+          tone={resumeIssue === "none" ? "info" : "warning"}
+          title={resumeIssueCopy(resumeIssue).title}
+        >
+          {resumeIssueCopy(resumeIssue).detail}
+        </CalloutBanner>
+      )}
 
       <StatRow className="mt-7">
         <StatMeasure

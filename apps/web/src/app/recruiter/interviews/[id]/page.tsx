@@ -7,6 +7,7 @@ import { PageHeader, SectionLabel } from "@/components/broadsheet/section";
 import { InterviewStatusBadge, RecommendationBadge } from "@/components/broadsheet/status-badge";
 import { Button } from "@/components/ui/button";
 import { InterviewStatusActions } from "@/components/interview/interview-status-actions";
+import { RecordingPlayer } from "@/components/interview/recording-player";
 import { describeIntegritySignal } from "@/lib/integrity";
 import { getInterviewDetail } from "@/lib/queries";
 import { getRecordingForReview } from "@/lib/recording";
@@ -214,26 +215,20 @@ export default async function InterviewDetailPage({
               {!recording ? (
                 <p className="text-sm text-muted-foreground">Not recorded. The interviewer can start one from the room.</p>
               ) : recording.status === "READY" ? (
-                <>
-                  {/* The link expires after 15 minutes; reloading the page issues a new one. */}
-                  {recording.playbackUrl && (
-                    <video controls preload="metadata" src={recording.playbackUrl} className="w-full bg-black" />
-                  )}
-                  <p className="mt-2 font-mono text-xs text-muted-foreground">
-                    {recording.durationSec
-                      ? `${Math.floor(recording.durationSec / 60)} min ${recording.durationSec % 60} s`
-                      : "ready"}
-                    {recording.error && ` · ${recording.error}`}
-                  </p>
-                </>
+                recording.playbackUrl ? (
+                  // The link expires after 15 minutes; the player offers a new one.
+                  <RecordingPlayer src={recording.playbackUrl} durationSec={recording.durationSec} />
+                ) : (
+                  <p className="text-sm text-muted-foreground">This recording isn&apos;t available to play.</p>
+                )
               ) : recording.status === "FAILED" ? (
-                <CalloutBanner tone="danger" title="Recording failed">
-                  {recording.error ?? "No reason given."}
+                <CalloutBanner tone="warning" title="This interview wasn't recorded">
+                  {recording.error ?? "The recording didn't complete. Everything else from the interview is here."}
                 </CalloutBanner>
               ) : (
                 <p className="text-sm text-muted-foreground">
                   {recording.status === "EXPIRED"
-                    ? (recording.error ?? "The recording was deleted under the retention policy.")
+                    ? (recording.error ?? "This recording has passed its retention period and was deleted.")
                     : recording.status === "PROCESSING"
                       ? "Recording stopped — still being saved. Reload in a minute."
                       : "Recording in progress."}

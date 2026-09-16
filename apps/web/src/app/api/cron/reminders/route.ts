@@ -11,7 +11,13 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: Request) {
   if (!isAuthorizedCronRequest(request.headers.get("authorization"))) {
-    return new Response(null, { status: 401 });
+    // A body, not an empty 401: this route is hit by a scheduler and by
+    // whoever is debugging why the scheduler stopped working, and an empty
+    // page says nothing about which of the two secrets is wrong.
+    return Response.json(
+      { error: "Unauthorized. Send `Authorization: Bearer <CRON_SECRET>`; requests are refused when CRON_SECRET is unset." },
+      { status: 401 },
+    );
   }
 
   const result = await sendDueReminders();

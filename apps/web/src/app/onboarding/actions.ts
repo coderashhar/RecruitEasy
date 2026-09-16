@@ -37,7 +37,7 @@ export async function setRole(formData: FormData) {
 
   const profile = clerkProfile(user);
   if (!profile) {
-    throw new Error("Your Clerk account has no email address — add one and try again.");
+    throw new Error("Your account has no email address yet. Add one to your profile, then try again.");
   }
 
   // Database row first, Clerk metadata second. If Clerk fails after this, the

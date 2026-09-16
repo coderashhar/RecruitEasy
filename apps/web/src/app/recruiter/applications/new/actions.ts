@@ -5,7 +5,20 @@ import { createApplicationSchema } from "@interviewhub/types";
 import { ApplicationError, createApplicationForOrg } from "@/lib/applications";
 import { requireCurrentUser } from "@/lib/users";
 
-export async function createApplication(formData: FormData) {
+export interface ApplicationFormState {
+  error: string | null;
+}
+
+/**
+ * Returns the message rather than throwing it: "That candidate has already
+ * applied to this job" is an answer the recruiter acts on in the form, not a
+ * fault. Anything that isn't an ApplicationError is a real fault and still
+ * throws, so it reaches the error boundary and the logs.
+ */
+export async function createApplication(
+  _prev: ApplicationFormState,
+  formData: FormData,
+): Promise<ApplicationFormState> {
   const { user } = await requireCurrentUser(["RECRUITER", "ADMIN"]);
 
   const parsed = createApplicationSchema.safeParse({
@@ -14,15 +27,13 @@ export async function createApplication(formData: FormData) {
   });
 
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? "Invalid input");
+    return { error: parsed.error.issues[0]?.message ?? "Pick a job and a candidate." };
   }
 
   try {
     await createApplicationForOrg(user.orgId, user.id, parsed.data);
   } catch (err) {
-    // ApplicationError messages are written to be shown to a recruiter;
-    // anything else is a real fault and should surface as-is.
-    if (err instanceof ApplicationError) throw new Error(err.message);
+    if (err instanceof ApplicationError) return { error: err.message };
     throw err;
   }
 

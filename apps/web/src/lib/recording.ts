@@ -72,13 +72,13 @@ export function describeStartFailure(err: unknown): string {
   const text = (message ?? "").toLowerCase();
 
   if (code === "resource_exhausted" || status === 429 || text.includes("limit") || text.includes("quota")) {
-    return "LiveKit's recording limit is used up — the free plan allows about an hour of recording a month, and two recordings at once. Try again later, or next month.";
+    return "Recording isn't available right now — the monthly limit has been reached. The interview itself is unaffected.";
   }
   if (code === "not_found" || status === 404 || (text.includes("room") && text.includes("not"))) {
     return "There's no call to record yet. Join the video call first, then start recording.";
   }
   if (code === "permission_denied" || code === "unauthenticated" || status === 401 || status === 403) {
-    return "LiveKit refused the recording request. Check that the LiveKit API key allows recording (egress).";
+    return "Recording was refused for this room. Someone with admin access will need to check the setup.";
   }
   return "Recording couldn't start. Try again in a moment.";
 }
@@ -94,7 +94,7 @@ async function loadForInterviewer(userId: string, interviewId: string) {
 
 export async function startRecording(userId: string, interviewId: string): Promise<RecordingRoomState> {
   if (!isRecordingConfigured()) {
-    throw new RecordingError("Recording isn't set up: it needs both LiveKit and R2 configured.");
+    throw new RecordingError("Recording isn't switched on for this workspace yet.");
   }
 
   const interview = await loadForInterviewer(userId, interviewId);
@@ -205,10 +205,10 @@ async function orgIdForInterview(interviewId: string): Promise<string | null> {
 }
 
 const FAILURE_MESSAGE: Partial<Record<EgressStatus, string>> = {
-  [EgressStatus.EGRESS_FAILED]: "LiveKit couldn't produce the recording.",
+  [EgressStatus.EGRESS_FAILED]: "The recording couldn't be produced.",
   [EgressStatus.EGRESS_ABORTED]: "The recording was aborted before it finished.",
   [EgressStatus.EGRESS_LIMIT_REACHED]:
-    "LiveKit's recording limit was reached (the free plan allows about an hour a month, and 3 hours per file).",
+    "The recording stopped at the monthly limit.",
 };
 
 /**

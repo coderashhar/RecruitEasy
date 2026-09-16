@@ -33,12 +33,20 @@ export async function POST(request: Request) {
   const user = await resolveUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await request.json();
+  // A malformed body used to throw here, which surfaced as a 500 — the bell
+  // sends JSON, so anything else is a bad request, not a server fault.
+  let body: { all?: boolean; ids?: unknown };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Expected a JSON body: { all: true } or { ids: [...] }" }, { status: 400 });
+  }
 
   if (body.all === true) {
     await markAllNotificationsRead(user.id);
   } else if (Array.isArray(body.ids) && body.ids.length > 0) {
-    await markNotificationsRead(user.id, body.ids);
+    // Ids are scoped to this user in the query, so a forged id changes nothing.
+    await markNotificationsRead(user.id, body.ids.filter((id): id is string => typeof id === "string"));
   }
 
   return NextResponse.json({ ok: true });

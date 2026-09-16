@@ -122,6 +122,10 @@ export function InterviewRoom({
   const [recordingBusy, startRecordingTransition] = useTransition();
   const [provider, setProvider] = useState<SocketYjsProvider | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>("connecting");
+  // The realtime service emits room:error and hangs up when it can't hydrate
+  // the room — without this the editor sat on "Connecting…" forever, with
+  // nothing on screen explaining why.
+  const [joinError, setJoinError] = useState<string | null>(null);
   const [connectedIds, setConnectedIds] = useState<string[]>([]);
   const [messages, setMessages] = useState<ChatMessageEvent[]>([]);
   const [draft, setDraft] = useState("");
@@ -247,6 +251,10 @@ export function InterviewRoom({
         .catch((err) => console.error("[interview] failed to fetch execution result", err));
     };
 
+    const handleRoomError = ({ message }: { message?: string }) =>
+      setJoinError(message ?? "Could not join the interview room.");
+
+    nextProvider.socket.on("room:error", handleRoomError);
     nextProvider.socket.on("presence:list", handlePresenceList);
     nextProvider.socket.on("presence:join", handlePresenceJoin);
     nextProvider.socket.on("presence:leave", handlePresenceLeave);
@@ -494,6 +502,7 @@ export function InterviewRoom({
       />
 
       {(role === "CANDIDATE" ||
+        joinError !== null ||
         connection === "reconnecting" ||
         connection === "disconnected" ||
         connection === "unauthorized" ||
@@ -510,6 +519,21 @@ export function InterviewRoom({
               {role === "INTERVIEWER" && status === "COMPLETED"
                 ? "Feedback is due within 24 hours — write it from the interview's page."
                 : "The editor and chat stay readable here; nothing new is recorded."}
+            </CalloutBanner>
+          )}
+          {joinError && (
+            <CalloutBanner
+              tone="danger"
+              role="alert"
+              title={joinError}
+              action={
+                <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+                  Reload the room
+                </Button>
+              }
+            >
+              Nothing you wrote is lost — the shared document is stored on the server. If reloading doesn&apos;t
+              help, the interview may have been deleted; open it from your interviews list.
             </CalloutBanner>
           )}
           {(connection === "reconnecting" || connection === "disconnected") && (

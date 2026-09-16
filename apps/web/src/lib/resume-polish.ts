@@ -81,7 +81,9 @@ export async function polishResume(
   // Checked before spending an attempt: an unconfigured deployment must not
   // burn through a candidate's allowance on calls that can never succeed.
   if (!gemini) {
-    throw new PolishError("Resume polishing is not available — AI service not configured.");
+    // The operator needs the specific cause; the candidate needs one plain line.
+    console.warn("[polish] GEMINI_API_KEY is not set — résumé polish is unavailable");
+    throw new PolishError("Polish isn't available right now. Your résumé and score are unaffected.");
   }
 
   let hitId: string;

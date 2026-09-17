@@ -4,6 +4,7 @@ import { useState, useTransition, type ChangeEvent } from "react";
 import { toast } from "sonner";
 import type { ApplicationStatus } from "@interviewhub/db";
 import { changeApplicationStatus } from "@/app/recruiter/applications/actions";
+import { APPLICATION_STATUS } from "@/components/broadsheet/status-badge";
 
 const selectClassName =
   "h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30 disabled:opacity-60";
@@ -58,7 +59,7 @@ export function ApplicationStatusSelect({
     >
       {statuses.map((s) => (
         <option key={s} value={s}>
-          {s}
+          {APPLICATION_STATUS[s].label}
         </option>
       ))}
     </select>

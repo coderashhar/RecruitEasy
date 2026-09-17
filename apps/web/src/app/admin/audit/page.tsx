@@ -93,7 +93,7 @@ export default async function AuditLogPage({
           </div>
           <p className="mt-2 max-w-[480px] text-sm leading-relaxed text-muted-foreground">
             {filtered
-              ? `${actorName ?? "Nobody"}${action ? ` has no ${action} entries` : " has no entries"}${after ? " older than this page" : ""}. Drop a filter to widen the search.`
+              ? `No${action ? ` ${action}` : ""} entries${actorName ? ` for ${actorName}` : actorId ? " for this actor" : ""}${after ? " older than this page" : ""}. Drop a filter to widen the search.`
               : "Changes to applications, interviews, jobs and privacy requests are recorded here as they happen."}
           </p>
           {action && actorId && (

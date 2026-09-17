@@ -8,7 +8,7 @@ import { InterviewStatusBadge, RecommendationBadge } from "@/components/broadshe
 import { Button } from "@/components/ui/button";
 import { InterviewStatusActions } from "@/components/interview/interview-status-actions";
 import { RecordingPlayer } from "@/components/interview/recording-player";
-import { describeIntegritySignal } from "@/lib/integrity";
+import { describeIntegritySignal, INTEGRITY_SIGNAL_LABEL } from "@/lib/integrity";
 import { getInterviewDetail } from "@/lib/queries";
 import { getRecordingForReview } from "@/lib/recording";
 import { requireCurrentUser } from "@/lib/users";
@@ -45,6 +45,19 @@ export default async function InterviewDetailPage({
   const live = interview.status === "SCHEDULED" || interview.status === "IN_PROGRESS";
   const ended = new Date(interview.scheduledAt.getTime() + interview.durationMins * 60_000);
   const feedbackDueAt = new Date(ended.getTime() + 24 * 60 * 60 * 1000);
+
+  // A candidate who alt-tabs a lot can leave hundreds of TAB_BLUR rows — cap
+  // the list so the page stays a readable length, and fall back to counts.
+  const MAX_INTEGRITY_SIGNALS_SHOWN = 20;
+  const shownSignals = interview.integritySignals.slice(0, MAX_INTEGRITY_SIGNALS_SHOWN);
+  const hiddenSignalCount = interview.integritySignals.length - shownSignals.length;
+  const signalCountsByType = interview.integritySignals.reduce<Partial<Record<string, number>>>(
+    (counts, signal) => {
+      counts[signal.type] = (counts[signal.type] ?? 0) + 1;
+      return counts;
+    },
+    {},
+  );
 
   return (
     <div className="flex max-w-[960px] flex-col">
@@ -245,12 +258,24 @@ export default async function InterviewDetailPage({
               <p className="py-3.5 text-sm text-muted-foreground">None recorded.</p>
             ) : (
               <>
-                {interview.integritySignals.map((signal) => (
+                {hiddenSignalCount > 0 && (
+                  <p className="pt-3.5 text-[13px] text-muted-foreground">
+                    {Object.entries(signalCountsByType)
+                      .map(([type, count]) => `${INTEGRITY_SIGNAL_LABEL[type as keyof typeof INTEGRITY_SIGNAL_LABEL]} × ${count}`)
+                      .join(" · ")}
+                  </p>
+                )}
+                {shownSignals.map((signal) => (
                   <div key={signal.id} className="flex justify-between gap-4 border-b border-hairline py-[11px] text-[13.5px] last:border-b-0">
                     <span>{describeIntegritySignal(signal.type, signal.payload)}</span>
                     <LocalTime value={signal.occurredAt} format="time" className="shrink-0 font-mono text-xs text-muted-foreground" />
                   </div>
                 ))}
+                {hiddenSignalCount > 0 && (
+                  <p className="pt-[11px] text-[13.5px] text-muted-foreground">
+                    +{hiddenSignalCount} more not shown.
+                  </p>
+                )}
                 <p className="mt-2 text-[13px] text-muted-foreground">Context, not a verdict on the candidate.</p>
               </>
             )}

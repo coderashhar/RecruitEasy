@@ -79,7 +79,7 @@ function StepRail({ step }: { step: number }) {
 }
 
 const cellClass: Record<SlotState["kind"] | "selected", string> = {
-  past: "cursor-not-allowed text-muted-foreground/50",
+  past: "cursor-not-allowed bg-muted/40 text-muted-foreground/50",
   free: "hover:bg-muted",
   partial:
     "bg-[repeating-linear-gradient(135deg,var(--border)_0_3px,transparent_3px_6px)] hover:bg-[repeating-linear-gradient(135deg,var(--input)_0_3px,transparent_3px_6px)]",

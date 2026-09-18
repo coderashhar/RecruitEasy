@@ -43,6 +43,7 @@ function input(overrides: Partial<ScheduleInterviewInput> = {}): ScheduleIntervi
     scheduledAt: new Date("2026-10-01T10:00:00Z"),
     durationMins: 60,
     interviewerIds: ["user_interviewer"],
+    observerIds: [],
     round: 1,
     ...overrides,
   };
@@ -121,6 +122,49 @@ describe("scheduleInterviewForOrg", () => {
     expect(createAuditLog).toHaveBeenCalledWith({
       data: expect.objectContaining({ orgId: ORG_ID, actorId: ACTOR_ID, target: "interview_1" }),
     });
+  });
+
+  test("observers become OBSERVER participants and are recorded in the audit meta", async () => {
+    findFirstApplication.mockResolvedValue({ id: "app_1", candidateId: "candidate_1" });
+    findManyUser.mockResolvedValueOnce([{ id: "user_interviewer" }]).mockResolvedValueOnce([{ id: "user_observer" }]);
+    createInterview.mockResolvedValue({ id: "interview_1" });
+
+    await scheduleInterviewForOrg(ORG_ID, ACTOR_ID, input({ observerIds: ["user_observer"] }));
+
+    expect(createInterview).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        participants: {
+          create: [
+            { userId: "candidate_1", role: "CANDIDATE" },
+            { userId: "user_interviewer", role: "INTERVIEWER" },
+            { userId: "user_observer", role: "OBSERVER" },
+          ],
+        },
+      }),
+    });
+    expect(createAuditLog).toHaveBeenCalledWith({
+      data: expect.objectContaining({ meta: expect.objectContaining({ observerIds: ["user_observer"] }) }),
+    });
+  });
+
+  test("an observer id from another org, or a candidate's -> rejected before any write", async () => {
+    findFirstApplication.mockResolvedValue({ id: "app_1", candidateId: "candidate_1" });
+    findManyUser.mockResolvedValueOnce([{ id: "user_interviewer" }]).mockResolvedValueOnce([]);
+
+    await expect(
+      scheduleInterviewForOrg(ORG_ID, ACTOR_ID, input({ observerIds: ["someone_else"] })),
+    ).rejects.toThrow(SchedulingError);
+    expect(createInterview).not.toHaveBeenCalled();
+  });
+
+  test("the same person can't be both interviewer and observer", async () => {
+    findFirstApplication.mockResolvedValue({ id: "app_1", candidateId: "candidate_1" });
+    findManyUser.mockResolvedValue([{ id: "user_interviewer" }]);
+
+    await expect(
+      scheduleInterviewForOrg(ORG_ID, ACTOR_ID, input({ observerIds: ["user_interviewer"] })),
+    ).rejects.toThrow("both an interviewer and an observer");
+    expect(createInterview).not.toHaveBeenCalled();
   });
 
   test("invites go out only once the interview exists, never for a rejected request", async () => {

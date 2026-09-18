@@ -100,6 +100,14 @@ describe("JUDGE0_LANGUAGE_ID coverage", () => {
 });
 
 describe("submitExecution", () => {
+  test("an observer is rejected before anything is created", async () => {
+    authorizeInterviewAccess.mockResolvedValue({ participantRole: "OBSERVER" });
+
+    await expect(submitExecution(USER_ID, input)).rejects.toThrow(ExecutionError);
+    expect(createExecution).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   test("a non-participant is rejected before anything is created", async () => {
     authorizeInterviewAccess.mockResolvedValue(null);
 

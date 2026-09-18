@@ -53,8 +53,19 @@ export function describeAuditAction(action: string, rawMeta: unknown): AuditSent
       return { parts: [text("Removed an application from the shortlist")] };
     case "interview.scheduled": {
       const panel = Array.isArray(meta.interviewerIds) ? meta.interviewerIds.length : null;
-      return { parts: [text("Scheduled an interview"), ...(panel ? [text(` · ${plural(panel, "interviewer")}`)] : [])] };
+      const watching = Array.isArray(meta.observerIds) ? meta.observerIds.length : 0;
+      return {
+        parts: [
+          text("Scheduled an interview"),
+          ...(panel ? [text(` · ${plural(panel, "interviewer")}`)] : []),
+          ...(watching > 0 ? [text(`, ${plural(watching, "observer")}`)] : []),
+        ],
+      };
     }
+    case "interview.observer_added":
+      return { parts: [text("Added an observer to an interview")] };
+    case "interview.observer_removed":
+      return { parts: [text("Removed an observer from an interview")] };
     case "interview.rescheduled":
       return { parts: [text("Rescheduled an interview")] };
     case "interview.status_changed":

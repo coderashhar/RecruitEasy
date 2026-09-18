@@ -64,7 +64,9 @@ export async function findInterviewerConflict(
  *     from another org's id guessed into the form, and
  *   - every interviewerId must be a real user of that org who can hold the
  *     INTERVIEWER participant role — never a CANDIDATE, and never a user
- *     belonging to a different org.
+ *     belonging to a different org, and
+ *   - observers pass the same test, and cannot also be on the panel: one
+ *     person holds one participant row per interview.
  */
 export async function scheduleInterviewForOrg(
   orgId: string,
@@ -88,6 +90,22 @@ export async function scheduleInterviewForOrg(
     throw new SchedulingError("One or more interviewers are invalid for this organization.");
   }
 
+  // Observers don't take part in the conflict check below: they watch, they
+  // don't run the interview, so being booked elsewhere doesn't block them.
+  const observerIds = [...new Set(input.observerIds)];
+  if (observerIds.some((id) => interviewerIds.includes(id))) {
+    throw new SchedulingError("Someone can't be both an interviewer and an observer.");
+  }
+  if (observerIds.length > 0) {
+    const validObservers = await prisma.user.findMany({
+      where: { id: { in: observerIds }, orgId, role: { in: [...INTERVIEWER_CAPABLE_ROLES] } },
+      select: { id: true },
+    });
+    if (validObservers.length !== observerIds.length) {
+      throw new SchedulingError("One or more observers are invalid for this organization.");
+    }
+  }
+
   if (await findInterviewerConflict(interviewerIds, input.scheduledAt, input.durationMins)) {
     throw new SchedulingError("One or more interviewers are already booked at that time.");
   }
@@ -107,6 +125,7 @@ export async function scheduleInterviewForOrg(
           create: [
             { userId: application.candidateId, role: "CANDIDATE" },
             ...interviewerIds.map((id) => ({ userId: id, role: "INTERVIEWER" as const })),
+            ...observerIds.map((id) => ({ userId: id, role: "OBSERVER" as const })),
           ],
         },
       },
@@ -118,7 +137,7 @@ export async function scheduleInterviewForOrg(
         actorId,
         action: "interview.scheduled",
         target: interview.id,
-        meta: { applicationId: application.id, interviewerIds },
+        meta: { applicationId: application.id, interviewerIds, observerIds },
       },
     });
 

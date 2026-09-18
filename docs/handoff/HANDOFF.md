@@ -147,7 +147,7 @@ flowchart LR
 | Email delivery (Resend) | Implemented; without `RESEND_API_KEY` emails are skipped silently (in-app notifications still appear). |
 | Reminders & retention | The logic exists, but nothing calls the cron routes locally. Trigger them by hand with `curl` (section 7). |
 | Organisations / multi-tenancy | Everyone joins the single "Default Organization". No org creation, invites or switching. |
-| OBSERVER participant role | Supported by the room and tokens, but no UI adds an observer to an interview. |
+| OBSERVER participant role | Recruiters/admins add observers when scheduling (step 1) or later from the interview page (Participants → Add an observer, while the interview is Scheduled or In progress). Observers can watch, see live cursors and chat; the editor is read-only and Run is refused, both enforced server-side. Removing an observer does not disconnect them if they're already in the room; the change applies when their session token next refreshes. |
 | Scheduling grid | Covers Mon–Fri 08:00–18:59 local time only; other times need the "exact time" input. The candidate's timezone isn't known. |
 | Interview status in the room | The "interview has ended" banner reflects status at page load only; mid-call changes aren't broadcast. |
 | Interviewer "Feedback due" | Only fills once a **recruiter/admin** marks the interview Completed; interviewers cannot mark it themselves. |

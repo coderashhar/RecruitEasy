@@ -20,6 +20,8 @@ loader.config({ monaco });
 export interface CodeEditorProps {
   provider: SocketYjsProvider;
   language: string;
+  /** Observers watch: the editor still shows live text and cursors, but takes no input. */
+  readOnly?: boolean;
 }
 
 interface RemotePeer {
@@ -86,7 +88,7 @@ function peerStyles(peers: RemotePeer[]): string {
  * persistSnapshot() reads `doc.getText("code")` when it saves CodeDocument —
  * a different key here would mean every session persists as empty.
  */
-export function CodeEditor({ provider, language }: CodeEditorProps) {
+export function CodeEditor({ provider, language, readOnly = false }: CodeEditorProps) {
   const bindingRef = useRef<MonacoBinding | null>(null);
   const [peers, setPeers] = useState<RemotePeer[]>([]);
 
@@ -143,7 +145,7 @@ export function CodeEditor({ provider, language }: CodeEditorProps) {
         theme={WELL_THEME}
         beforeMount={defineWellTheme}
         onMount={handleMount}
-        options={{ automaticLayout: true, minimap: { enabled: false }, fontSize: 14 }}
+        options={{ automaticLayout: true, minimap: { enabled: false }, fontSize: 14, readOnly }}
       />
     </>
   );

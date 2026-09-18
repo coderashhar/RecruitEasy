@@ -28,6 +28,11 @@ export async function submitExecution(userId: string, input: ExecuteRequest): Pr
   if (!access) {
     throw new ExecutionError("You are not a participant of this interview.");
   }
+  // Server Actions are directly invocable, so hiding the Run button from an
+  // observer is not enough on its own.
+  if (access.participantRole === "OBSERVER") {
+    throw new ExecutionError("Observers can watch, but not run code.");
+  }
 
   const execution = await prisma.execution.create({
     data: {

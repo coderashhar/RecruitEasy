@@ -29,6 +29,7 @@ export async function scheduleInterview(formData: FormData): Promise<{ error?: s
     scheduledAt: formData.get("scheduledAt"),
     durationMins: Number(formData.get("durationMins") || 60),
     interviewerIds: formData.getAll("interviewerIds"),
+    observerIds: formData.getAll("observerIds"),
     round: Number(formData.get("round") || 1),
   });
 

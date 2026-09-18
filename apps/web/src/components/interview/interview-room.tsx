@@ -396,6 +396,9 @@ export function InterviewRoom({
     role === "INTERVIEWER" &&
     recordingAvailable &&
     (recordingState === "idle" || recordingState === "failed" || recordingState === "recording");
+  // An observer watches: the realtime service drops their edits and the run
+  // action refuses them, so the controls are hidden rather than left to fail.
+  const canEdit = role !== "OBSERVER";
   const leaveHref = role === "CANDIDATE" ? "/candidate/interviews" : "/recruiter/interviews";
   // As of page load: a status change mid-call isn't broadcast to the room.
   const ended = status === "COMPLETED" || status === "CANCELLED" || status === "NO_SHOW";
@@ -572,7 +575,7 @@ export function InterviewRoom({
                 <select
                   aria-label="Language"
                   value={language}
-                  disabled={!provider}
+                  disabled={!provider || !canEdit}
                   onChange={(event) =>
                     handleLanguageChange(event.target.value as SupportedLanguage)
                   }
@@ -584,9 +587,13 @@ export function InterviewRoom({
                     </option>
                   ))}
                 </select>
-                <Button size="sm" className="h-[26px] px-3.5" disabled={!provider || executing} onClick={handleRunCode}>
-                  {executing ? "Running…" : "Run"}
-                </Button>
+                {canEdit ? (
+                  <Button size="sm" className="h-[26px] px-3.5" disabled={!provider || executing} onClick={handleRunCode}>
+                    {executing ? "Running…" : "Run"}
+                  </Button>
+                ) : (
+                  <span className="font-mono text-[11.5px] text-muted-foreground">watching · read-only</span>
+                )}
               </div>
               <span className="font-mono text-[11.5px] text-muted-foreground">
                 {onlineCount} of {roster.length} here · synced
@@ -594,7 +601,7 @@ export function InterviewRoom({
             </div>
             <div className="min-h-0 flex-1 bg-well">
               {provider ? (
-                <CodeEditor provider={provider} language={language} />
+                <CodeEditor provider={provider} language={language} readOnly={!canEdit} />
               ) : (
                 <div className="flex h-full items-center justify-center px-6 text-center font-mono text-[13px] text-muted-foreground">
                   {connection === "unauthorized"

@@ -106,6 +106,7 @@ export function ScheduleFlow({
   );
   const [duration, setDuration] = useState(60);
   const [panelIds, setPanelIds] = useState<string[]>([]);
+  const [observerIds, setObserverIds] = useState<string[]>([]);
   const [weekStart, setWeekStart] = useState(() => localWeekStart(new Date()));
   const [busy, setBusy] = useState<Interval[]>([]);
   const [selected, setSelected] = useState<Date | null>(null);
@@ -116,6 +117,8 @@ export function ScheduleFlow({
   const application = applications.find((entry) => entry.id === applicationId);
   const panel = interviewers.filter((interviewer) => panelIds.includes(interviewer.id));
   const panelNames = panel.map((interviewer) => interviewer.name);
+  const observers = interviewers.filter((interviewer) => observerIds.includes(interviewer.id));
+  const observerNames = observers.map((interviewer) => interviewer.name);
 
   const days = useMemo(
     () =>
@@ -148,7 +151,13 @@ export function ScheduleFlow({
 
   function togglePanel(id: string, checked: boolean) {
     setPanelIds((ids) => (checked ? [...ids, id] : ids.filter((existing) => existing !== id)));
+    // One person, one role: promoting an observer to the panel takes them off the watchers.
+    if (checked) setObserverIds((ids) => ids.filter((existing) => existing !== id));
     setSelected(null);
+  }
+
+  function toggleObserver(id: string, checked: boolean) {
+    setObserverIds((ids) => (checked ? [...ids, id] : ids.filter((existing) => existing !== id)));
   }
 
   function confirm() {
@@ -159,6 +168,7 @@ export function ScheduleFlow({
     formData.set("durationMins", String(duration));
     formData.set("round", String(round));
     for (const id of panelIds) formData.append("interviewerIds", id);
+    for (const id of observerIds) formData.append("observerIds", id);
 
     setError(null);
     startSubmit(async () => {
@@ -273,6 +283,38 @@ export function ScheduleFlow({
                   </div>
                 )}
               </fieldset>
+
+              {interviewers.some((interviewer) => !panelIds.includes(interviewer.id)) && (
+                <fieldset className="mt-[26px]">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <legend>
+                      <Eyebrow>Observers · {observerIds.length} selected</Eyebrow>
+                    </legend>
+                    <span className="text-[13px] text-muted-foreground">Optional · they watch and chat, no editing</span>
+                  </div>
+                  <div className="mt-[9px] border-t">
+                    {interviewers
+                      .filter((interviewer) => !panelIds.includes(interviewer.id))
+                      .map((interviewer) => {
+                        const checked = observerIds.includes(interviewer.id);
+                        return (
+                          <label
+                            key={interviewer.id}
+                            className="flex cursor-pointer items-center gap-3 border-b border-hairline py-3 last:border-b-0"
+                          >
+                            <Checkbox checked={checked} onCheckedChange={(next) => toggleObserver(interviewer.id, next)} />
+                            <span className={cn("flex-1 text-sm", checked ? "font-medium" : "text-foreground/80")}>
+                              {interviewer.name}
+                            </span>
+                            <span className="text-[13px] text-muted-foreground capitalize">
+                              {interviewer.role.toLowerCase()}
+                            </span>
+                          </label>
+                        );
+                      })}
+                  </div>
+                </fieldset>
+              )}
             </div>
 
             <aside>
@@ -519,6 +561,11 @@ export function ScheduleFlow({
               <FactRow label="Panel">
                 <span className="font-medium">{panelNames.join(", ")}</span>
               </FactRow>
+              {observerNames.length > 0 && (
+                <FactRow label="Observers">
+                  <span className="font-medium">{observerNames.join(", ")}</span>
+                </FactRow>
+              )}
               <button type="button" onClick={() => setStep(0)} className="mt-3 text-[13.5px] text-primary hover:underline">
                 Edit any of this
               </button>
@@ -536,6 +583,14 @@ export function ScheduleFlow({
                   <>
                     <span className="font-medium">{panelNames.join(", ")}</span> — the same invite, with the room link
                   </>,
+                  ...(observerNames.length > 0
+                    ? [
+                        <>
+                          <span className="font-medium">{observerNames.join(", ")}</span> — the same invite, to watch
+                          the room read-only
+                        </>,
+                      ]
+                    : []),
                   "Reminders 24 hours and 1 hour before, to everyone",
                   <>
                     <span className="font-mono text-[12.5px]">interview.scheduled</span> recorded in the audit log

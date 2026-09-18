@@ -29,6 +29,19 @@ describe("describeAuditAction", () => {
   });
 });
 
+describe("observer audit sentences", () => {
+  it("reads observers off a scheduling row and names add and remove", () => {
+    expect(sentence("interview.scheduled", { interviewerIds: ["a"], observerIds: ["b", "c"] })).toBe(
+      "Scheduled an interview · 1 interviewer, 2 observers",
+    );
+    expect(sentence("interview.scheduled", { interviewerIds: ["a"], observerIds: [] })).toBe(
+      "Scheduled an interview · 1 interviewer",
+    );
+    expect(sentence("interview.observer_added")).toBe("Added an observer to an interview");
+    expect(sentence("interview.observer_removed")).toBe("Removed an observer from an interview");
+  });
+});
+
 describe("formatAuditMeta", () => {
   it("renders key=value pairs and collapses arrays to a length", () => {
     expect(formatAuditMeta({ applicationId: "app_1", interviewerIds: ["a", "b"] })).toBe(

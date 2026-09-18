@@ -9,10 +9,11 @@ import { Button } from "@/components/ui/button";
 import { InterviewStatusActions } from "@/components/interview/interview-status-actions";
 import { RecordingPlayer } from "@/components/interview/recording-player";
 import { describeIntegritySignal, INTEGRITY_SIGNAL_LABEL } from "@/lib/integrity";
-import { getInterviewDetail } from "@/lib/queries";
+import { getInterviewDetail, getPotentialInterviewers } from "@/lib/queries";
 import { getRecordingForReview } from "@/lib/recording";
 import { requireCurrentUser } from "@/lib/users";
 import { FeedbackForm } from "./feedback-form";
+import { AddObserverForm, RemoveObserverButton } from "./observer-controls";
 import { RescheduleForm } from "./reschedule-form";
 
 export default async function InterviewDetailPage({
@@ -45,6 +46,15 @@ export default async function InterviewDetailPage({
   const live = interview.status === "SCHEDULED" || interview.status === "IN_PROGRESS";
   const ended = new Date(interview.scheduledAt.getTime() + interview.durationMins * 60_000);
   const feedbackDueAt = new Date(ended.getTime() + 24 * 60 * 60 * 1000);
+
+  // Only someone not already in the room can be added; the candidate's own
+  // account is never offered because it can't hold an INTERVIEWER-capable role.
+  const canEditObservers = canManage && live;
+  const observerCandidates = canEditObservers
+    ? (await getPotentialInterviewers(user.orgId)).filter(
+        (person) => !interview.participants.some((participant) => participant.userId === person.id),
+      )
+    : [];
 
   // A candidate who alt-tabs a lot can leave hundreds of TAB_BLUR rows — cap
   // the list so the page stays a readable length, and fall back to counts.
@@ -217,9 +227,26 @@ export default async function InterviewDetailPage({
                   {participant.user.name}
                   {participant.userId === user.id && " (you)"}
                 </span>
-                <span className="text-xs text-muted-foreground capitalize">{participant.role.toLowerCase()}</span>
+                <span className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <span className="capitalize">{participant.role.toLowerCase()}</span>
+                  {canEditObservers && participant.role === "OBSERVER" && (
+                    <RemoveObserverButton
+                      interviewId={interview.id}
+                      userId={participant.userId}
+                      name={participant.user.name}
+                    />
+                  )}
+                </span>
               </div>
             ))}
+            {canEditObservers && (
+              <>
+                <AddObserverForm interviewId={interview.id} candidates={observerCandidates} />
+                <p className="mt-2 text-[13px] text-muted-foreground">
+                  Observers watch and chat. They can&apos;t edit the code or run it.
+                </p>
+              </>
+            )}
           </section>
 
           <section aria-labelledby="recording">

@@ -24,6 +24,7 @@ export const scheduleInterviewSchema = z.object({
   scheduledAt: submittedDateSchema,
   durationMins: z.number().int().min(15).max(240).default(60),
   interviewerIds: z.array(z.string().min(1)).min(1),
+  observerIds: z.array(z.string().min(1)).default([]),
   round: z.number().int().min(1).default(1),
 });
 export type ScheduleInterviewInput = z.infer<typeof scheduleInterviewSchema>;
@@ -34,6 +35,12 @@ export const rescheduleInterviewSchema = z.object({
   durationMins: z.number().int().min(15).max(240),
 });
 export type RescheduleInterviewInput = z.infer<typeof rescheduleInterviewSchema>;
+
+export const interviewObserverSchema = z.object({
+  interviewId: z.string().min(1),
+  userId: z.string().min(1),
+});
+export type InterviewObserverInput = z.infer<typeof interviewObserverSchema>;
 
 export const updateInterviewStatusSchema = z.object({
   interviewId: z.string().min(1),

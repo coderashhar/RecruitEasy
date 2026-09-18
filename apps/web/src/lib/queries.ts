@@ -262,7 +262,9 @@ export async function getNavCounts(user: { id: string; orgId: string }, role: st
       prisma.interview.count({
         where: {
           application: { job: { orgId: user.orgId } },
-          participants: { some: { userId: user.id, role: "INTERVIEWER" } },
+          // Any participant row, as on the My interviews page this count points at —
+          // an interviewer added as an observer sees that interview there too.
+          participants: { some: { userId: user.id } },
           OR: upcomingOrLive(now),
         },
       }),

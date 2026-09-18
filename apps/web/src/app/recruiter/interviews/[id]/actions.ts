@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  interviewObserverSchema,
   rescheduleInterviewSchema,
   submitFeedbackSchema,
   updateInterviewStatusSchema,
@@ -12,6 +13,7 @@ import {
   rescheduleInterview as rescheduleInterviewForOrg,
   updateInterviewStatus as updateInterviewStatusForOrg,
 } from "@/lib/interview-lifecycle";
+import { addInterviewObserver, ObserverError, removeInterviewObserver } from "@/lib/interview-observers";
 import { ROLES } from "@/lib/roles";
 import { requireCurrentUser } from "@/lib/users";
 
@@ -91,6 +93,32 @@ export async function submitFeedbackAction(formData: FormData) {
     await submitFeedback(user.id, parsed.data);
   } catch (err) {
     if (err instanceof FeedbackError) throw new Error(err.message);
+    throw err;
+  }
+
+  revalidatePath(`/recruiter/interviews/${parsed.data.interviewId}`);
+}
+
+/** RECRUITER/ADMIN only, like the other actions that change who is in an interview. */
+export async function changeObserverAction(formData: FormData) {
+  const { user } = await requireCurrentUser(["RECRUITER", "ADMIN"]);
+
+  const parsed = interviewObserverSchema.safeParse({
+    interviewId: formData.get("interviewId"),
+    userId: formData.get("userId"),
+  });
+  if (!parsed.success) {
+    throw new Error("Pick someone to add.");
+  }
+
+  try {
+    if (formData.get("intent") === "remove") {
+      await removeInterviewObserver(user.orgId, user.id, parsed.data);
+    } else {
+      await addInterviewObserver(user.orgId, user.id, parsed.data);
+    }
+  } catch (err) {
+    if (err instanceof ObserverError) throw new Error(err.message);
     throw err;
   }
 

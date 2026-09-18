@@ -128,6 +128,11 @@ io.on("connection", (socket: Socket<any, any, any, SocketData>) => {
   let joined = false;
 
   socket.on("doc:update", async (update: Buffer) => {
+    // An observer watches. The editor is read-only on their side, but a
+    // hand-rolled client could still send frames, and this is the check that
+    // holds when one does.
+    if (role === "OBSERVER") return;
+
     let room;
     try {
       room = await roomPromise;

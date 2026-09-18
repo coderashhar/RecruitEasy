@@ -44,7 +44,7 @@ async function waitForCodeDocument(interviewId: string, timeoutMs = 8_000) {
   }
 }
 
-function tokenFor(interviewId: string, userId: string, role: "CANDIDATE" | "INTERVIEWER") {
+function tokenFor(interviewId: string, userId: string, role: "CANDIDATE" | "INTERVIEWER" | "OBSERVER") {
   return jwt.sign({ interviewId, userId, role }, SECRET, {
     algorithm: "HS256",
     expiresIn: "5m",
@@ -192,6 +192,42 @@ describe("realtime server (integration, real DB + real sockets)", () => {
 
     a.socket.close();
     b.socket.close();
+  });
+
+  // The observer's editor is read-only in the browser, but that is only UI:
+  // this proves the server refuses their edits when a client sends them anyway,
+  // while they still receive everyone else's.
+  test("an observer's edits are dropped, but they still see the room's", async () => {
+    const interviewId = await createInterview();
+    const interviewerSocket = await connect(tokenFor(interviewId, "user-obs-i", "INTERVIEWER"));
+    const observer = await connect(tokenFor(interviewId, "user-obs-o", "OBSERVER"));
+    await Promise.all([interviewerSocket.next("doc:sync"), observer.next("doc:sync")]);
+
+    const observerDoc = new Y.Doc();
+    observerDoc.getText("code").insert(0, "SHOULD NOT LAND");
+    observer.socket.emit("doc:update", Y.encodeStateAsUpdate(observerDoc));
+
+    // The observer's frame is sent first; if it were applied it would reach
+    // the interviewer before (and instead of) the legitimate edit below.
+    const interviewerDoc = new Y.Doc();
+    interviewerDoc.getText("code").insert(0, "real edit");
+    const observerReceives = observer.next("doc:update");
+    const interviewerReceives = interviewerSocket.next("doc:update");
+    interviewerSocket.socket.emit("doc:update", Y.encodeStateAsUpdate(interviewerDoc));
+
+    const seenByObserver = new Y.Doc();
+    Y.applyUpdate(seenByObserver, new Uint8Array(await observerReceives));
+    expect(seenByObserver.getText("code").toString()).toBe("real edit");
+
+    // The interviewer must never have been sent the observer's frame.
+    const raced = await Promise.race([
+      interviewerReceives.then(() => "received"),
+      new Promise((resolve) => setTimeout(() => resolve("nothing"), 500)),
+    ]);
+    expect(raced).toBe("nothing");
+
+    interviewerSocket.socket.close();
+    observer.socket.close();
   });
 
   test("a malformed frame is dropped, not crashes, and the connection stays usable", async () => {

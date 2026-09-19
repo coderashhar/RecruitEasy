@@ -149,7 +149,6 @@ flowchart LR
 | Organisations / multi-tenancy | Everyone joins the single "Default Organization". No org creation, invites or switching. |
 | OBSERVER participant role | Recruiters/admins add observers when scheduling (step 1) or later from the interview page (Participants → Add an observer, while the interview is Scheduled or In progress). Observers can watch, see live cursors and chat; the editor is read-only and Run is refused, both enforced server-side. Removing an observer does not disconnect them if they're already in the room; the change applies when their session token next refreshes. |
 | Scheduling grid | Covers Mon–Fri 08:00–18:59 local time only; other times need the "exact time" input. The candidate's timezone isn't known. |
-| Interview status in the room | The "interview has ended" banner reflects status at page load only; mid-call changes aren't broadcast. |
 | Deploy: Judge0 on the VPS | `infra/judge0` isn't yet wired into `infra/caddy/docker-compose.yml` (stated in its README). |
 
 #### ❌ Not implemented / broken
@@ -1578,7 +1577,7 @@ In **Postman**, create an environment with `baseUrl=http://localhost:3000`, `ses
 | Method | Endpoint | Authentication | Purpose | Request | Expected Response | Error Cases |
 |---|---|---|---|---|---|---|
 | GET | `/healthz` | none | Liveness | none | `200 ok` | — |
-| POST | `/internal/broadcast` | Header `x-internal-secret: <REALTIME_JWT_SECRET>` (constant-time compare) | Web app tells a room about a new execution or recording state | JSON `{"type":"execution","interviewId":"…","executionId":"…"}` or `{"type":"recording","interviewId":"…","state":"idle\|recording\|processing\|ready\|failed","message?":"…"}` | `204` and emits `execution:result` or `recording:state` to the room | `401` wrong or missing header; `400` invalid JSON or schema; `404` any other path |
+| POST | `/internal/broadcast` | Header `x-internal-secret: <REALTIME_JWT_SECRET>` (constant-time compare) | Web app tells a room about a new execution, recording state or interview status | JSON `{"type":"execution","interviewId":"…","executionId":"…"}` or `{"type":"recording","interviewId":"…","state":"idle\|recording\|processing\|ready\|failed","message?":"…"}` or `{"type":"status","interviewId":"…","status":"SCHEDULED\|IN_PROGRESS\|COMPLETED\|CANCELLED\|NO_SHOW"}` | `204` and emits `execution:result`, `recording:state` or `interview:status` to the room | `401` wrong or missing header; `400` invalid JSON or schema; `404` any other path |
 
 ```bash
 curl -i http://localhost:4000/healthz

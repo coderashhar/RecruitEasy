@@ -35,6 +35,11 @@ vi.mock("./recording", () => ({
   stopActiveRecording: (...args: unknown[]) => stopActiveRecording(...args),
 }));
 
+const broadcastToRoom = vi.fn();
+vi.mock("./realtime-broadcast", () => ({
+  broadcastToRoom: (...args: unknown[]) => broadcastToRoom(...args),
+}));
+
 vi.mock("./interview-notices", () => ({
   sendInterviewInvites: (...args: unknown[]) => sendInterviewInvites(...args),
 }));
@@ -74,6 +79,7 @@ beforeEach(() => {
   findInterviewerConflict.mockResolvedValue(false);
   findManyParticipant.mockResolvedValue([{ userId: "user_interviewer" }]);
   sendInterviewInvites.mockReset();
+  broadcastToRoom.mockReset();
   stopActiveRecording.mockReset().mockResolvedValue(false);
 });
 
@@ -175,6 +181,8 @@ describe("updateInterviewStatus", () => {
 
       if (legal) {
         await expect(promise).resolves.toMatchObject({ status: to });
+        // Anyone already in the room hears about it without reloading.
+        expect(broadcastToRoom).toHaveBeenCalledWith({ type: "status", interviewId: "interview_1", status: to });
         // The previously-read status is pinned into the write, so a
         // concurrent transition can't slip past the matrix check.
         expect(updateInterview).toHaveBeenCalledWith({
@@ -183,6 +191,7 @@ describe("updateInterviewStatus", () => {
         });
       } else {
         await expect(promise).rejects.toThrow(LifecycleError);
+        expect(broadcastToRoom).not.toHaveBeenCalled();
         expect(updateInterview).not.toHaveBeenCalled();
       }
     });

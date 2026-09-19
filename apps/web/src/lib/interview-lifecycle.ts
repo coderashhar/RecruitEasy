@@ -4,6 +4,7 @@ import { after } from "next/server";
 import { prisma, type Interview, type InterviewStatus } from "@interviewhub/db";
 import type { RescheduleInterviewInput, UpdateInterviewStatusInput } from "@interviewhub/types";
 import { sendInterviewInvites } from "./interview-notices";
+import { broadcastToRoom } from "./realtime-broadcast";
 import { stopActiveRecording } from "./recording";
 import { findInterviewerConflict } from "./scheduling";
 
@@ -79,6 +80,10 @@ export async function updateInterviewStatus(
 
     return tx.interview.findUniqueOrThrow({ where: { id: interview.id } });
   });
+
+  // Whoever is in the room right now sees the change without reloading: the
+  // "interview is complete" banner, and the interviewer's feedback prompt.
+  after(() => broadcastToRoom({ type: "status", interviewId: interview.id, status: input.status }));
 
   // Until now a cancelled interview stayed on everyone's calendar, and the
   // candidate was never told.

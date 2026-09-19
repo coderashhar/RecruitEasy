@@ -45,14 +45,17 @@ export function InterviewStatusActions({
   status,
   candidateName,
   round,
+  allowed,
 }: {
   interviewId: string;
   status: InterviewStatus;
   candidateName: string;
   round: number;
+  /** Narrows the moves offered, e.g. to what an interviewer may do. The server enforces the same limit. */
+  allowed?: readonly InterviewStatus[];
 }) {
   const [isPending, startTransition] = useTransition();
-  const nextStatuses = NEXT_STATUSES[status];
+  const nextStatuses = NEXT_STATUSES[status].filter((next) => !allowed || allowed.includes(next));
 
   if (nextStatuses.length === 0) return null;
 

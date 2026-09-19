@@ -3,6 +3,7 @@ import type { InterviewStatus } from "@interviewhub/db";
 
 const findFirstInterview = vi.fn();
 const findManyParticipant = vi.fn();
+const findFirstParticipant = vi.fn();
 const updateInterview = vi.fn();
 const createAuditLog = vi.fn();
 const findInterviewerConflict = vi.fn();
@@ -20,7 +21,10 @@ const tx = {
 vi.mock("@interviewhub/db", () => ({
   prisma: {
     interview: { findFirst: (...args: unknown[]) => findFirstInterview(...args) },
-    interviewParticipant: { findMany: (...args: unknown[]) => findManyParticipant(...args) },
+    interviewParticipant: {
+      findMany: (...args: unknown[]) => findManyParticipant(...args),
+      findFirst: (...args: unknown[]) => findFirstParticipant(...args),
+    },
     $transaction: (cb: (tx: unknown) => unknown) => cb(tx),
   },
 }));
@@ -42,7 +46,7 @@ vi.mock("./scheduling.js", () => ({
   findInterviewerConflict: (...args: unknown[]) => findInterviewerConflict(...args),
 }));
 
-const { updateInterviewStatus, rescheduleInterview, LifecycleError } = await import(
+const { updateInterviewStatus, updateInterviewStatusAsInterviewer, rescheduleInterview, LifecycleError } = await import(
   "./interview-lifecycle.js"
 );
 
@@ -61,6 +65,7 @@ function interview(status: InterviewStatus) {
 beforeEach(() => {
   findFirstInterview.mockReset();
   findManyParticipant.mockReset();
+  findFirstParticipant.mockReset();
   updateInterview.mockReset();
   findUniqueOrThrowInterview.mockReset();
   updateInterview.mockResolvedValue({ count: 1 });
@@ -70,6 +75,64 @@ beforeEach(() => {
   findManyParticipant.mockResolvedValue([{ userId: "user_interviewer" }]);
   sendInterviewInvites.mockReset();
   stopActiveRecording.mockReset().mockResolvedValue(false);
+});
+
+describe("updateInterviewStatusAsInterviewer", () => {
+  const ME = "user_interviewer";
+
+  test("an interviewer on the panel can complete it; the seat check is scoped to org and the INTERVIEWER role", async () => {
+    findFirstParticipant.mockResolvedValue({ id: "participant_1" });
+    findFirstInterview.mockResolvedValue(interview("IN_PROGRESS"));
+    findUniqueOrThrowInterview.mockResolvedValue({ ...interview("IN_PROGRESS"), status: "COMPLETED" });
+
+    await updateInterviewStatusAsInterviewer(ORG_ID, ME, { interviewId: "interview_1", status: "COMPLETED" });
+
+    expect(findFirstParticipant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          interviewId: "interview_1",
+          userId: ME,
+          role: "INTERVIEWER",
+          interview: { application: { job: { orgId: ORG_ID } } },
+        },
+      }),
+    );
+    expect(updateInterview).toHaveBeenCalled();
+    expect(createAuditLog).toHaveBeenCalledWith({
+      data: expect.objectContaining({ actorId: ME, action: "interview.status_changed" }),
+    });
+  });
+
+  test("not on this interview's panel (another interviewer, or an observer) -> rejected before any write", async () => {
+    findFirstParticipant.mockResolvedValue(null);
+
+    await expect(
+      updateInterviewStatusAsInterviewer(ORG_ID, ME, { interviewId: "interview_1", status: "COMPLETED" }),
+    ).rejects.toThrow(LifecycleError);
+    expect(updateInterview).not.toHaveBeenCalled();
+  });
+
+  for (const status of ["CANCELLED", "NO_SHOW", "SCHEDULED"] as const) {
+    test(`${status} stays with recruiters, even for someone on the panel`, async () => {
+      findFirstParticipant.mockResolvedValue({ id: "participant_1" });
+
+      await expect(
+        updateInterviewStatusAsInterviewer(ORG_ID, ME, { interviewId: "interview_1", status }),
+      ).rejects.toThrow(LifecycleError);
+      expect(findFirstParticipant).not.toHaveBeenCalled();
+      expect(updateInterview).not.toHaveBeenCalled();
+    });
+  }
+
+  test("the ordinary transition rules still apply: a completed interview can't be restarted", async () => {
+    findFirstParticipant.mockResolvedValue({ id: "participant_1" });
+    findFirstInterview.mockResolvedValue(interview("COMPLETED"));
+
+    await expect(
+      updateInterviewStatusAsInterviewer(ORG_ID, ME, { interviewId: "interview_1", status: "IN_PROGRESS" }),
+    ).rejects.toThrow(LifecycleError);
+    expect(updateInterview).not.toHaveBeenCalled();
+  });
 });
 
 describe("updateInterviewStatus", () => {

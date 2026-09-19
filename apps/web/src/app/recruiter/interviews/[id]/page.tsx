@@ -8,6 +8,7 @@ import { InterviewStatusBadge, RecommendationBadge } from "@/components/broadshe
 import { Button } from "@/components/ui/button";
 import { InterviewStatusActions } from "@/components/interview/interview-status-actions";
 import { RecordingPlayer } from "@/components/interview/recording-player";
+import { INTERVIEWER_STATUS_MOVES } from "@/lib/interview-lifecycle";
 import { describeIntegritySignal, INTEGRITY_SIGNAL_LABEL } from "@/lib/integrity";
 import { getInterviewDetail, getPotentialInterviewers } from "@/lib/queries";
 import { getRecordingForReview } from "@/lib/recording";
@@ -31,8 +32,8 @@ export default async function InterviewDetailPage({
   if (!interview) notFound();
 
   // INTERVIEWER can view this page (they may need to review it) but doesn't
-  // own pipeline decisions — matches scheduleInterview/changeInterviewStatus's
-  // own RECRUITER/ADMIN-only restriction.
+  // own pipeline decisions — rescheduling, cancelling and no-shows stay with
+  // RECRUITER/ADMIN, as changeInterviewStatus enforces.
   const canManage = role === "RECRUITER" || role === "ADMIN";
 
   // Eligibility to give feedback is per-interview, not per-platform-role —
@@ -119,6 +120,21 @@ export default async function InterviewDetailPage({
               }
             />
           )}
+        </div>
+      )}
+
+      {!canManage && isInterviewerHere && live && (
+        <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2.5 border-t border-rule-strong pt-4">
+          <InterviewStatusActions
+            interviewId={interview.id}
+            status={interview.status}
+            candidateName={interview.application.candidate.name}
+            round={interview.round}
+            allowed={INTERVIEWER_STATUS_MOVES}
+          />
+          <span className="text-[13px] text-muted-foreground">
+            Marking it completed opens your feedback. A recruiter handles cancellations and no-shows.
+          </span>
         </div>
       )}
 

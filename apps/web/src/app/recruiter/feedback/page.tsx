@@ -29,7 +29,7 @@ export default async function FeedbackDuePage() {
           Waiting on you
         </SectionLabel>
         {due.length === 0 ? (
-          <p className="py-4 text-sm text-muted-foreground">Feedback you owe appears here once an interview is marked completed.</p>
+          <p className="py-4 text-sm text-muted-foreground">Feedback you owe appears here once an interview is marked completed — by you from its page, or by a recruiter.</p>
         ) : (
           <ul>
             {due.map((interview) => {

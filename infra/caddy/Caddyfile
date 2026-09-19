@@ -1,8 +1,24 @@
-# VPS reverse proxy. Terminates TLS (automatic via Let's Encrypt) and routes
-# to the realtime service. Judge0 (infra/judge0, added in Phase 1 step 5)
-# joins this same file, on its own subdomain, bound to the compose network —
-# never exposed on a public port directly.
+# VPS reverse proxy. Terminates TLS (automatic via Let's Encrypt) for both
+# public hostnames. Nothing else on this box is reachable from outside.
 
 {$REALTIME_DOMAIN} {
     reverse_proxy realtime:4000
+}
+
+# Judge0 runs on Vercel's side of the internet from apps/web, so it needs a
+# public address, but only for the one call the web app makes: a synchronous
+# submission (apps/web/src/lib/judge0.ts). Everything else Judge0 serves (its
+# worker, config and system-info endpoints among them) answers 404 here.
+# AUTHN_TOKEN is still checked by Judge0 on the calls that do get through.
+{$JUDGE0_DOMAIN} {
+    @submission {
+        method POST
+        path /submissions
+    }
+    handle @submission {
+        reverse_proxy server:2358
+    }
+    handle {
+        respond 404
+    }
 }

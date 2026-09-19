@@ -8,10 +8,13 @@
 # `latest`. An untested upgrade here is untested sandbox behaviour for
 # candidate code, which is exactly the risk PRD §13 calls out.
 #
-# For local dev, `server`'s port is published straight to the host, since
-# apps/web's dev server also runs on the host and reaches it via
-# JUDGE0_URL=http://localhost:2358. On the VPS this joins the same network
-# as apps/realtime.
+# `server`'s port is published to the host's loopback only. Local dev needs
+# that: apps/web's dev server runs on the host and reaches it via
+# JUDGE0_URL=http://localhost:2358. On the VPS it matters the other way:
+# Docker writes its own iptables rules, so a plain "2358:2358" would be
+# reachable from the internet even behind a host firewall. There,
+# infra/caddy/docker-compose.yml includes this file and Caddy is the only
+# public way in.
 x-logging:
   &default-logging
   logging:
@@ -25,7 +28,7 @@ services:
     volumes:
       - ./judge0.conf:/judge0.conf:ro
     ports:
-      - "2358:2358"
+      - "127.0.0.1:2358:2358"
     privileged: true
     <<: *default-logging
     restart: unless-stopped

@@ -1,5 +1,14 @@
-# Run from the VPS alongside apps/realtime and (from Phase 1 step 5) the
-# Judge0 stack. `realtime` here must match the service name Caddy proxies to.
+# Run from the VPS: Caddy, apps/realtime, the cron ticker and the Judge0 stack
+# as one project. `realtime` and Judge0's `server` must match the service names
+# the Caddyfile proxies to.
+#
+# Needs Docker Compose 2.20 or later for `include`. Judge0's own file is used
+# unchanged, so local dev and the VPS run the same sandbox configuration; its
+# relative paths (judge0.conf) resolve against infra/judge0, so fill that file
+# in first (infra/judge0/README.md).
+include:
+  - ../judge0/docker-compose.yml
+
 services:
   caddy:
     image: caddy:2-alpine
@@ -13,8 +22,12 @@ services:
       - caddy_config:/config
     environment:
       REALTIME_DOMAIN: ${REALTIME_DOMAIN}
+      JUDGE0_DOMAIN: ${JUDGE0_DOMAIN}
     networks:
       - interviewhub
+      # The included Judge0 services sit on this project's default network.
+      # Caddy joins it to reach `server`; realtime does not, and never needs to.
+      - default
 
   realtime:
     build:

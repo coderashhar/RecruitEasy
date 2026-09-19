@@ -149,7 +149,6 @@ flowchart LR
 | Organisations / multi-tenancy | Everyone joins the single "Default Organization". No org creation, invites or switching. |
 | OBSERVER participant role | Recruiters/admins add observers when scheduling (step 1) or later from the interview page (Participants → Add an observer, while the interview is Scheduled or In progress). Observers can watch, see live cursors and chat; the editor is read-only and Run is refused, both enforced server-side. Removing an observer does not disconnect them if they're already in the room; the change applies when their session token next refreshes. |
 | Scheduling grid | Shows Mon–Fri 08:00–18:59 local time by default; the **Weekend** and **06:00–22:59** toggles widen it. Half-hour and night starts still need the "exact time" input. The candidate's timezone isn't known (see *Candidate availability / timezone capture* below). |
-| Deploy: Judge0 on the VPS | `infra/judge0` isn't yet wired into `infra/caddy/docker-compose.yml` (stated in its README). |
 
 #### ❌ Not implemented / broken
 
@@ -272,7 +271,7 @@ openssl rand -hex 32
 | LiveKit API key | `LIVEKIT_API_KEY` | Optional (video) · 🔒 secret | LiveKit Cloud → project → **Settings → Keys** | `apps/web/.env.local` | Mint video tokens, start/stop Egress, verify webhooks |
 | LiveKit API secret | `LIVEKIT_API_SECRET` | Optional (video) · 🔒 secret | Same screen as above | `apps/web/.env.local` | Same as above |
 | LiveKit server URL | `NEXT_PUBLIC_LIVEKIT_URL` | Optional (video) · 🌐 public | LiveKit Cloud project URL, `wss://<project>.livekit.cloud` | `apps/web/.env.local` | Browser connects to the call; Egress client host |
-| Judge0 URL | `JUDGE0_URL` | Optional (Run) · 🔒 server-only | `http://localhost:2358` when running `infra/judge0` | `apps/web/.env.local` | Code execution endpoint (never exposed to the browser) |
+| Judge0 URL | `JUDGE0_URL` | Optional (Run) · 🔒 server-only | `http://localhost:2358` when running `infra/judge0`; prod: `https://<JUDGE0_DOMAIN>` | `apps/web/.env.local` | Code execution endpoint (never exposed to the browser) |
 | Judge0 token | `JUDGE0_AUTH_TOKEN` | Optional (Run) · 🔒 secret | The `AUTHN_TOKEN` you generated in `infra/judge0/judge0.conf` | `apps/web/.env.local` | Sent as `X-Auth-Token` to Judge0 |
 | R2 account ID | `R2_ACCOUNT_ID` | Optional (files) · 🔒 secret | Cloudflare Dashboard → **R2** → Account ID | `apps/web/.env.local` | Builds the endpoint `https://<id>.r2.cloudflarestorage.com` |
 | R2 access key ID | `R2_ACCESS_KEY_ID` | Optional (files) · 🔒 secret | Cloudflare → R2 → **Manage API tokens** → create token (Object Read & Write) | `apps/web/.env.local` | S3 credentials; also reused by LiveKit Egress to upload recordings |
@@ -310,6 +309,7 @@ openssl rand -hex 32
 | Judge0 Postgres password | `POSTGRES_PASSWORD` | Required by Judge0 · 🔒 secret | `openssl rand -hex 32` | `infra/judge0/judge0.conf` | Internal Judge0 DB |
 | Judge0 API token | `AUTHN_TOKEN` | Required by Judge0 · 🔒 secret | `openssl rand -hex 32`; copy into `JUDGE0_AUTH_TOKEN` | `infra/judge0/judge0.conf` | Rejects unauthenticated submissions |
 | Realtime domain | `REALTIME_DOMAIN` | Prod VPS only | Your DNS name for the realtime service | env read by `infra/caddy/docker-compose.yml` (e.g. `infra/caddy/.env`) | Caddy TLS + reverse proxy |
+| Judge0 domain | `JUDGE0_DOMAIN` | Prod VPS only | Your DNS name for Judge0; Vercel's `JUDGE0_URL` is `https://` + this | `infra/caddy/.env` | Caddy TLS; proxies only `POST /submissions` to Judge0, 404 for everything else |
 | App origin for cron | `APP_URL` | Prod VPS only | Deployed web origin | `infra/caddy/.env` | The `cron` container calls `$APP_URL/api/cron/*` every 10 min |
 | Cron secret | `CRON_SECRET` | Prod VPS only · 🔒 secret | Same as web | `infra/caddy/.env` | Bearer token for cron calls |
 

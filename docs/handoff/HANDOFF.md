@@ -150,7 +150,6 @@ flowchart LR
 | OBSERVER participant role | Recruiters/admins add observers when scheduling (step 1) or later from the interview page (Participants → Add an observer, while the interview is Scheduled or In progress). Observers can watch, see live cursors and chat; the editor is read-only and Run is refused, both enforced server-side. Removing an observer does not disconnect them if they're already in the room; the change applies when their session token next refreshes. |
 | Scheduling grid | Covers Mon–Fri 08:00–18:59 local time only; other times need the "exact time" input. The candidate's timezone isn't known. |
 | Interview status in the room | The "interview has ended" banner reflects status at page load only; mid-call changes aren't broadcast. |
-| Interviewer "Feedback due" | Only fills once a **recruiter/admin** marks the interview Completed; interviewers cannot mark it themselves. |
 | Deploy: Judge0 on the VPS | `infra/judge0` isn't yet wired into `infra/caddy/docker-compose.yml` (stated in its README). |
 
 #### ❌ Not implemented / broken
@@ -686,6 +685,8 @@ Every page then **re-checks** with `requireCurrentUser([...roles])`. A wrong rol
   |---|---|
   | SCHEDULED | Mark in progress · Mark completed · **Cancel interview** (confirm dialog listing side effects) · **Mark no-show** (confirm dialog) · **Reschedule** (inline form) |
   | IN_PROGRESS | Mark completed · Cancel interview |
+
+  An **interviewer on the panel** (any platform role) gets only *Mark in progress* and *Mark completed*, with a note that cancellations and no-shows belong to a recruiter.
   | COMPLETED | Schedule round N+1 (→ `/recruiter/schedule?applicationId=…&round=N+1`) |
 
 - **Reschedule form:** "Currently" vs "Moving to" (local date & time, duration 15–240), a "This will…" side-effect list, **Keep current time** / **Move interview**.
@@ -697,7 +698,7 @@ Every page then **re-checks** with `requireCurrentUser([...roles])`. A wrong rol
 - **Chat:** the transcript with times.
 - **Sidebar:** participants; **Recording** (video player with a 15-min signed URL when READY — an expired link shows "The playback link expired" with **Get a new link** — plus status text for other states); **Integrity signals** list (advisory).
 - **Actions:**
-  - `changeInterviewStatus` — RECRUITER/ADMIN; legal transitions only; optimistic lock.
+  - `changeInterviewStatus` — RECRUITER/ADMIN any legal move; anyone holding the INTERVIEWER participant row on this interview may move it to IN_PROGRESS or COMPLETED only (`updateInterviewStatusAsInterviewer`); legal transitions only; optimistic lock.
   - `rescheduleInterviewAction` — SCHEDULED only; interviewer conflict check; bumps the ICS sequence, resets reminders, emails updated invites.
   - `submitFeedbackAction` — must be an INTERVIEWER participant.
 - **DB:** R `interviews`, `interview_participants`, `feedback`, `code_documents`, `chat_messages`, `integrity_signals`, `recordings`; W `interviews`, `feedback`, `audit_logs`, `notifications`.
@@ -844,7 +845,7 @@ flowchart TD
   P --> S[/recruiter/schedule: panel → grid → confirm/]
   S --> I[(Interview SCHEDULED + invites)]
   I --> RM[/interview/id: editor, chat, video, run/]
-  RM --> M[Recruiter marks COMPLETED]
+  RM --> M[Recruiter or panel interviewer marks COMPLETED]
   M --> F[Interviewer submits feedback]
   F --> CMP[Compare / move to Offer / Hired]
   C --> D[/candidate/data: request deletion/]
@@ -970,7 +971,7 @@ All screenshots below were captured from the **running application** on 16 Sep 2
 ![Feedback due](screenshots/recruiter-feedback-due.png)
 
 **Purpose:** Feedback you owe.
-**Expected behavior:** Empty ("You are clear…") until a recruiter marks an interview you were on as Completed.
+**Expected behavior:** Empty ("You are clear…") until an interview you were on is marked Completed, by you from its page or by a recruiter.
 
 ### Page: Jobs list, Post a job, Add a candidate
 **Routes:** `/recruiter/jobs`, `/recruiter/jobs/new`, `/recruiter/applications/new`
@@ -1486,7 +1487,7 @@ Each scenario chains several features. Run them in separate browser profiles so 
 
 ### Scenario 4 — Wrap-up: feedback and decision
 
-1. REC → interview detail → **Mark completed**.
+1. INT (or REC) → interview detail → **Mark completed**.
 2. INT → **Feedback due**. **Expect** the interview listed → **Write feedback** → rate 4/4/5, evidence, **Hire** → **Submit**.
 3. REC → candidate profile. **Expect** averages and a Hire chip. → **Compare** with Alice → **Change selection**.
 4. REC moves the candidate to **Offer**, then **Hired**.

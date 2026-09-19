@@ -11,6 +11,7 @@ import { FeedbackError, submitFeedback } from "@/lib/feedback";
 import {
   LifecycleError,
   rescheduleInterview as rescheduleInterviewForOrg,
+  updateInterviewStatusAsInterviewer,
   updateInterviewStatus as updateInterviewStatusForOrg,
 } from "@/lib/interview-lifecycle";
 import { addInterviewObserver, ObserverError, removeInterviewObserver } from "@/lib/interview-observers";
@@ -18,12 +19,13 @@ import { ROLES } from "@/lib/roles";
 import { requireCurrentUser } from "@/lib/users";
 
 /**
- * RECRUITER/ADMIN only — mirrors scheduleInterview's own split (an
- * INTERVIEWER may browse and run interviews, but doesn't own the pipeline
- * decisions of cancelling, marking complete, or rescheduling one).
+ * RECRUITER/ADMIN may make any legal move. Anyone else may only start or
+ * complete an interview they sit on as an interviewer, checked against the
+ * participant row in updateInterviewStatusAsInterviewer, since this action is
+ * directly invocable whatever buttons the page shows.
  */
 export async function changeInterviewStatus(formData: FormData) {
-  const { user } = await requireCurrentUser(["RECRUITER", "ADMIN"]);
+  const { user, role } = await requireCurrentUser(["RECRUITER", "INTERVIEWER", "ADMIN"]);
 
   const parsed = updateInterviewStatusSchema.safeParse({
     interviewId: formData.get("interviewId"),
@@ -34,13 +36,18 @@ export async function changeInterviewStatus(formData: FormData) {
   }
 
   try {
-    await updateInterviewStatusForOrg(user.orgId, user.id, parsed.data);
+    if (role === "RECRUITER" || role === "ADMIN") {
+      await updateInterviewStatusForOrg(user.orgId, user.id, parsed.data);
+    } else {
+      await updateInterviewStatusAsInterviewer(user.orgId, user.id, parsed.data);
+    }
   } catch (err) {
     if (err instanceof LifecycleError) throw new Error(err.message);
     throw err;
   }
 
   revalidatePath(`/recruiter/interviews/${parsed.data.interviewId}`);
+  revalidatePath("/recruiter/feedback");
 }
 
 export async function rescheduleInterviewAction(formData: FormData) {

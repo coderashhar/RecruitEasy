@@ -98,6 +98,47 @@ export async function updateInterviewStatus(
 }
 
 /**
+ * What someone on the panel may do to an interview's status without being a
+ * recruiter: start it and close it out. Cancelling and no-shows stay with the
+ * recruiter, since they tell the candidate things or count against them.
+ */
+export const INTERVIEWER_STATUS_MOVES = ["IN_PROGRESS", "COMPLETED"] as const;
+
+/**
+ * The panel's own path to updateInterviewStatus. Without it "Feedback due"
+ * stays empty until a recruiter remembers to mark the interview completed,
+ * which the interviewer who just ran it can't do.
+ *
+ * Eligibility is the INTERVIEWER participant row on this interview, not the
+ * platform role, the same boundary submitFeedback uses: an interviewer
+ * elsewhere in the org, or an observer here, gets nowhere.
+ */
+export async function updateInterviewStatusAsInterviewer(
+  orgId: string,
+  actorId: string,
+  input: UpdateInterviewStatusInput,
+): Promise<Interview> {
+  if (!(INTERVIEWER_STATUS_MOVES as readonly InterviewStatus[]).includes(input.status)) {
+    throw new LifecycleError("Only a recruiter can cancel an interview or mark a no-show.");
+  }
+
+  const seat = await prisma.interviewParticipant.findFirst({
+    where: {
+      interviewId: input.interviewId,
+      userId: actorId,
+      role: "INTERVIEWER",
+      interview: { application: { job: { orgId } } },
+    },
+    select: { id: true },
+  });
+  if (!seat) {
+    throw new LifecycleError("Only the interview's own interviewers can change its status.");
+  }
+
+  return updateInterviewStatus(orgId, actorId, input);
+}
+
+/**
  * Only a still-SCHEDULED interview can be rescheduled. An interview that's
  * IN_PROGRESS, or already reached a terminal state, needs a new interview
  * (via scheduleInterviewForOrg), not a rewrite of what already happened to

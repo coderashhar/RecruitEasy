@@ -139,9 +139,12 @@ in-memory `Y.Doc` state per interview room — see ADR-002 in the plan.
 - **`apps/web` → Vercel.** Set the project's Root Directory to `apps/web`
   ([`vercel.json`](apps/web/vercel.json) handles the monorepo install/build from there). Add the
   same env vars from `apps/web/.env.local`.
-- **`apps/realtime` (+ [`infra/judge0`](infra/judge0)) → one small VPS**, reverse-proxied by
-  [`infra/caddy`](infra/caddy). `apps/realtime/Dockerfile` builds the service; bring it up with
-  `infra/caddy/docker-compose.yml`.
+- **`apps/realtime` + [`infra/judge0`](infra/judge0) → one small VPS**, reverse-proxied by
+  [`infra/caddy`](infra/caddy). Fill in `infra/judge0/judge0.conf`, set `REALTIME_DOMAIN` and
+  `JUDGE0_DOMAIN` in `infra/caddy/.env`, then run `docker compose up -d` in `infra/caddy`
+  (Compose 2.20+). That one project starts Caddy, realtime, the cron ticker and Judge0. On Vercel,
+  set `JUDGE0_URL=https://<JUDGE0_DOMAIN>`. Setup steps and a smoke test are in
+  [`infra/judge0/README.md`](infra/judge0/README.md#on-the-vps).
 - **Recording (optional).** Needs LiveKit and R2 both configured. In LiveKit Cloud → Settings →
   Webhooks, add `<app origin>/api/livekit/webhook` signed with the same API key as
   `LIVEKIT_API_KEY`; without it, recordings stay at "saving" forever. Locally, expose `:3000`
@@ -159,7 +162,7 @@ in-memory `Y.Doc` state per interview room — see ADR-002 in the plan.
 ## Security and privacy
 
 - **In transit:** TLS everywhere. Vercel serves the web app over HTTPS, Caddy terminates TLS for
-  the realtime service, and Neon, R2, LiveKit, Clerk and Resend are reached only over HTTPS/TLS.
+  the realtime service and Judge0 (which only accepts code submissions from outside), and Neon, R2, LiveKit, Clerk and Resend are reached only over HTTPS/TLS.
 - **At rest:** Neon encrypts databases and backups at rest (AES-256), and Cloudflare R2 encrypts
   every stored object (resumes, recordings) at rest. There is no separate application-level
   encryption.

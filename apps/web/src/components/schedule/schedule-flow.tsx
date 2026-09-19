@@ -24,10 +24,14 @@ export interface SchedulableInterviewer {
 
 const DURATION_PRESETS = [30, 45, 60, 90, 120];
 const DURATION_OPTIONS = Array.from({ length: 16 }, (_, index) => (index + 1) * 15);
-const DAY_COUNT = 5;
-const FIRST_HOUR = 8;
-const LAST_HOUR = 18;
-const HOURS = Array.from({ length: LAST_HOUR - FIRST_HOUR + 1 }, (_, index) => FIRST_HOUR + index);
+// Working hours by default; the toggles widen the grid rather than making
+// every recruiter scroll past nights and weekends they rarely book.
+const WORKDAY_HOURS = { first: 8, last: 18 };
+const EXTENDED_HOURS = { first: 6, last: 22 };
+
+function hourRange({ first, last }: { first: number; last: number }) {
+  return Array.from({ length: last - first + 1 }, (_, index) => first + index);
+}
 
 const STEPS = ["Who and how long", "Pick a time", "Review and send"] as const;
 
@@ -108,6 +112,10 @@ export function ScheduleFlow({
   const [panelIds, setPanelIds] = useState<string[]>([]);
   const [observerIds, setObserverIds] = useState<string[]>([]);
   const [weekStart, setWeekStart] = useState(() => localWeekStart(new Date()));
+  const [showWeekend, setShowWeekend] = useState(false);
+  const [showExtendedHours, setShowExtendedHours] = useState(false);
+  const hours = hourRange(showExtendedHours ? EXTENDED_HOURS : WORKDAY_HOURS);
+  const dayCount = showWeekend ? 7 : 5;
   const [busy, setBusy] = useState<Interval[]>([]);
   const [selected, setSelected] = useState<Date | null>(null);
   const [error, setError] = useState<{ message: string; conflict: boolean } | null>(null);
@@ -122,12 +130,12 @@ export function ScheduleFlow({
 
   const days = useMemo(
     () =>
-      Array.from({ length: DAY_COUNT }, (_, index) => {
+      Array.from({ length: dayCount }, (_, index) => {
         const day = new Date(weekStart);
         day.setDate(day.getDate() + index);
         return day;
       }),
-    [weekStart],
+    [weekStart, dayCount],
   );
 
   function refreshBusy(start: Date) {
@@ -381,7 +389,17 @@ export function ScheduleFlow({
               <span className="size-[15px] bg-foreground" />
               Selected
             </span>
-            <span className="font-mono text-[11.5px] sm:ml-auto" aria-live="polite">
+            <span className="flex flex-wrap items-center gap-x-5 gap-y-2 sm:ml-auto">
+              <label className="inline-flex cursor-pointer items-center gap-2">
+                <Checkbox checked={showWeekend} onCheckedChange={(next) => setShowWeekend(next)} />
+                Weekend
+              </label>
+              <label className="inline-flex cursor-pointer items-center gap-2">
+                <Checkbox checked={showExtendedHours} onCheckedChange={(next) => setShowExtendedHours(next)} />
+                06:00–22:59
+              </label>
+            </span>
+            <span className="font-mono text-[11.5px]" aria-live="polite">
               {loadingBusy ? "reading calendars…" : "conflicts checked before you choose"}
             </span>
           </div>
@@ -391,8 +409,10 @@ export function ScheduleFlow({
               role="grid"
               aria-label={`Start times, week of ${weekLabel}`}
               aria-busy={loadingBusy}
+              style={{ gridTemplateColumns: `96px repeat(${dayCount}, minmax(0, 1fr))` }}
               className={cn(
-                "grid min-w-[640px] grid-cols-[96px_repeat(5,minmax(0,1fr))] transition-opacity",
+                "grid transition-opacity",
+                showWeekend ? "min-w-[820px]" : "min-w-[640px]",
                 loadingBusy && "opacity-50",
               )}
             >
@@ -413,7 +433,7 @@ export function ScheduleFlow({
                 );
               })}
 
-              {HOURS.map((hour) => {
+              {hours.map((hour) => {
                 const labelDate = new Date(days[0]);
                 labelDate.setHours(hour, 0, 0, 0);
                 return (
@@ -472,7 +492,7 @@ export function ScheduleFlow({
           </div>
 
           <label className="mt-5 flex flex-wrap items-center gap-3 text-[13px] text-muted-foreground">
-            Outside these hours? Enter an exact time
+            Need a time not on the grid, like a half hour? Enter it exactly
             <input
               type="datetime-local"
               onChange={(event) => {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { interviewStatusSchema } from "./interview";
 
 // Socket.io event contracts for the editor/presence/chat channel.
 // Video (LiveKit) events are out of scope here — see ADR-002.
@@ -61,6 +62,17 @@ export const recordingBroadcastSchema = z.object({
   message: z.string().max(500).optional(),
 });
 
+/** An interview's status changed (started, completed, cancelled...) while people may be in the room. */
+export const statusBroadcastSchema = z.object({
+  type: z.literal("status"),
+  interviewId: z.string().min(1),
+  status: interviewStatusSchema,
+});
+
 /** Body of apps/realtime's POST /internal/broadcast. */
-export const internalBroadcastSchema = z.union([recordingBroadcastSchema, executionBroadcastSchema]);
+export const internalBroadcastSchema = z.union([
+  recordingBroadcastSchema,
+  statusBroadcastSchema,
+  executionBroadcastSchema,
+]);
 export type InternalBroadcast = z.infer<typeof internalBroadcastSchema>;

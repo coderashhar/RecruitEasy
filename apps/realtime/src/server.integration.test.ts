@@ -401,9 +401,9 @@ describe("realtime server (integration, real DB + real sockets)", () => {
     interviewer.socket.close();
   });
 
-  // The web app announces executions and recording changes through one hook.
+  // The web app announces executions, recording and status changes through one hook.
   // An older web deploy sends executions without a `type`; that must keep working.
-  test("internal broadcasts reach the room: recording state, and executions with or without a type", async () => {
+  test("internal broadcasts reach the room: recording state, interview status, and executions with or without a type", async () => {
     const interviewId = await createInterview();
     const candidate = await connect(tokenFor(interviewId, candidateId, "CANDIDATE"));
     await candidate.next("chat:history");
@@ -418,6 +418,10 @@ describe("realtime server (integration, real DB + real sockets)", () => {
 
     expect((await post({ type: "recording", interviewId, state: "recording" })).status).toBe(204);
     expect(await candidate.next("recording:state")).toEqual({ state: "recording" });
+
+    expect((await post({ type: "status", interviewId, status: "COMPLETED" })).status).toBe(204);
+    expect(await candidate.next("interview:status")).toEqual({ status: "COMPLETED" });
+    expect((await post({ type: "status", interviewId, status: "FINISHED" })).status).toBe(400);
 
     expect((await post({ interviewId, executionId: "exec_legacy" })).status).toBe(204);
     expect(await candidate.next("execution:result")).toEqual({ executionId: "exec_legacy" });

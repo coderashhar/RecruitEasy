@@ -112,13 +112,16 @@ export function InterviewRoom({
   candidateName,
   scheduledAt,
   durationMins,
-  status,
+  status: initialStatus,
   videoToken,
   videoServerUrl,
   recordingAvailable,
   initialRecordingState,
 }: InterviewRoomProps) {
   const [recordingState, setRecordingState] = useState<RecordingRoomState>(initialRecordingState);
+  // Starts as of page load, then follows interview:status broadcasts, so a
+  // recruiter completing or cancelling the interview mid-call shows here.
+  const [status, setStatus] = useState<InterviewStatus>(initialStatus);
   const [recordingBusy, startRecordingTransition] = useTransition();
   const [provider, setProvider] = useState<SocketYjsProvider | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>("connecting");
@@ -272,6 +275,8 @@ export function InterviewRoom({
       },
     );
 
+    nextProvider.socket.on("interview:status", ({ status: next }: { status: InterviewStatus }) => setStatus(next));
+
     // Interviewers and observers see the candidate's signals as they happen,
     // as a passing note rather than an alert — they are context, not verdicts.
     const handleIntegritySignal = ({ userId, type, payload }: IntegritySignalEvent) => {
@@ -400,7 +405,6 @@ export function InterviewRoom({
   // action refuses them, so the controls are hidden rather than left to fail.
   const canEdit = role !== "OBSERVER";
   const leaveHref = role === "CANDIDATE" ? "/candidate/interviews" : "/recruiter/interviews";
-  // As of page load: a status change mid-call isn't broadcast to the room.
   const ended = status === "COMPLETED" || status === "CANCELLED" || status === "NO_SHOW";
 
   // Defined once and placed in two different containers — the rail beside the

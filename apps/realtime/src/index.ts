@@ -58,7 +58,7 @@ function isValidInternalSecret(header: string | string[] | undefined): boolean {
 
 const httpServer = createServer(async (req, res) => {
   // Minimal server-to-server hook: the web app calls this after persisting an
-  // Execution or changing a recording, so every socket in the room learns
+  // Execution, changing a recording or an interview's status, so every socket in the room learns
   // about it without the web app holding a socket connection of its own
   // (ADR-004).
   if (req.method === "POST" && req.url === "/internal/broadcast") {
@@ -73,6 +73,8 @@ const httpServer = createServer(async (req, res) => {
       const body = internalBroadcastSchema.parse(JSON.parse(Buffer.concat(chunks).toString()));
       if (body.type === "recording") {
         io.to(body.interviewId).emit("recording:state", { state: body.state, message: body.message });
+      } else if (body.type === "status") {
+        io.to(body.interviewId).emit("interview:status", { status: body.status });
       } else {
         io.to(body.interviewId).emit("execution:result", { executionId: body.executionId });
       }

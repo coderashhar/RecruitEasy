@@ -148,7 +148,7 @@ flowchart LR
 | Reminders & retention | The logic exists, but nothing calls the cron routes locally. Trigger them by hand with `curl` (section 7). |
 | Organisations / multi-tenancy | Everyone joins the single "Default Organization". No org creation, invites or switching. |
 | OBSERVER participant role | Recruiters/admins add observers when scheduling (step 1) or later from the interview page (Participants → Add an observer, while the interview is Scheduled or In progress). Observers can watch, see live cursors and chat; the editor is read-only and Run is refused, both enforced server-side. Removing an observer does not disconnect them if they're already in the room; the change applies when their session token next refreshes. |
-| Scheduling grid | Covers Mon–Fri 08:00–18:59 local time only; other times need the "exact time" input. The candidate's timezone isn't known. |
+| Scheduling grid | Shows Mon–Fri 08:00–18:59 local time by default; the **Weekend** and **06:00–22:59** toggles widen it. Half-hour and night starts still need the "exact time" input. The candidate's timezone isn't known (see *Candidate availability / timezone capture* below). |
 | Deploy: Judge0 on the VPS | `infra/judge0` isn't yet wired into `infra/caddy/docker-compose.yml` (stated in its README). |
 
 #### ❌ Not implemented / broken
@@ -758,7 +758,7 @@ Every page then **re-checks** with `requireCurrentUser([...roles])`. A wrong rol
   - Side panel shows your timezone.
   - **Find a time** is disabled until an application and at least one interviewer are chosen.
 - **Step 2 · Pick a time:**
-  - Mon–Fri × 08:00–18:00 local grid; each row label also shows UTC. **‹ This week ›** navigation.
+  - Mon–Fri × 08:00–18:00 local grid by default; **Weekend** adds Sat–Sun and **06:00–22:59** adds early and late hours. Each row label also shows UTC. **‹ This week ›** navigation.
   - Cell states: *All free* (blank), *Some booked* (hatched, names who is busy), *All booked* (grey, disabled), *past* (disabled), *Selected* (black, shows start–end).
   - "Outside these hours? Enter an exact time" (`datetime-local`).
   - Footer shows the chosen slot in local time and UTC; **Back** / **Review**.

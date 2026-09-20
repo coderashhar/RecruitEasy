@@ -116,6 +116,7 @@ model User {
   chatMessages           ChatMessage[]
   dataDeletionRequests      DataDeletionRequest[] @relation("DeletionRequestedBy")
   processedDeletionRequests DataDeletionRequest[] @relation("DeletionProcessedBy")
+  calendarAccounts       CalendarAccount[]
 
   @@index([orgId])
   @@map("users")
@@ -236,6 +237,7 @@ model Interview {
   feedback      Feedback[]
   integritySignals IntegritySignal[]
   chatMessages  ChatMessage[]
+  calendarEvents CalendarEvent[]
 
   @@index([applicationId])
   // The reminder sweep's range scan over upcoming SCHEDULED interviews.
@@ -441,4 +443,69 @@ model DataDeletionRequest {
   @@index([orgId, status])
   @@index([userId])
   @@map("data_deletion_requests")
+}
+
+// ---------------------------------------------------------------------------
+// External calendars (PRD FR-5.3)
+// ---------------------------------------------------------------------------
+
+enum CalendarProvider {
+  GOOGLE
+}
+
+/**
+ * One person's connected external calendar. `@@unique([userId, provider])`
+ * rather than a bare unique on userId: a second provider is a row, not a
+ * migration.
+ *
+ * The two token columns hold ciphertext, never the tokens themselves — a
+ * refresh token is a bearer credential for someone's whole calendar, and the
+ * database is the one place in this system that holds other people's. See
+ * lib/token-cipher.ts.
+ */
+model CalendarAccount {
+  id           String           @id @default(cuid())
+  userId       String
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider     CalendarProvider @default(GOOGLE)
+  /** Which Google account this is, so the settings page can name it. */
+  accountEmail String
+  calendarId   String           @default("primary")
+  accessToken  String
+  refreshToken String
+  /** When accessToken stops working; refreshed before it is reached. */
+  expiresAt    DateTime
+  scope        String
+  /** Connected but paused: kept so reconnecting isn't a fresh consent screen. */
+  syncEnabled  Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  events CalendarEvent[]
+
+  @@unique([userId, provider])
+  @@map("calendar_accounts")
+}
+
+/**
+ * The event this interview has on one person's calendar. Without this row a
+ * reschedule could only add a second event — the provider's own event id is
+ * the only handle for patching or deleting the first.
+ */
+model CalendarEvent {
+  id                String          @id @default(cuid())
+  interviewId       String
+  interview         Interview       @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  calendarAccountId String
+  calendarAccount   CalendarAccount @relation(fields: [calendarAccountId], references: [id], onDelete: Cascade)
+  /** The provider's event id. */
+  externalId        String
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  // One event per interview per calendar: the upsert key that makes a repeated
+  // sync idempotent instead of duplicating the event.
+  @@unique([interviewId, calendarAccountId])
+  @@index([calendarAccountId])
+  @@map("calendar_events")
 }

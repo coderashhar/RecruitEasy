@@ -45,7 +45,13 @@ export function navigationFor(role: Role, counts: NavCounts = {}): NavSection[] 
             { href: "/jobs", label: "Browse jobs" },
           ],
         },
-        { label: "Privacy", items: [{ href: "/candidate/data", label: "Your data" }] },
+        {
+          label: "Privacy",
+          items: [
+            { href: "/candidate/data", label: "Your data" },
+            { href: "/settings/calendar", label: "Calendar" },
+          ],
+        },
       ];
     case "INTERVIEWER":
       return [
@@ -62,6 +68,7 @@ export function navigationFor(role: Role, counts: NavCounts = {}): NavSection[] 
             { href: "/recruiter/candidates", label: "Candidates" },
           ],
         },
+        { label: "You", items: [{ href: "/settings/calendar", label: "Calendar" }] },
       ];
     case "RECRUITER":
     case "ADMIN": {
@@ -75,9 +82,14 @@ export function navigationFor(role: Role, counts: NavCounts = {}): NavSection[] 
           { href: "/recruiter/analytics", label: "Analytics" },
         ],
       };
-      if (role === "RECRUITER") return [hiring];
+      const you: NavSection = {
+        label: "You",
+        items: [{ href: "/settings/calendar", label: "Calendar" }],
+      };
+      if (role === "RECRUITER") return [hiring, you];
       return [
         hiring,
+        you,
         {
           label: "Administration",
           items: [

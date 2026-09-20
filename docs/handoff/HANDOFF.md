@@ -44,6 +44,7 @@ Several features depend on **optional external services**. Without them, the app
 | Cloudflare R2 | Résumés aren't stored, so downloads 404 |
 | Resend | No emails; in-app notifications still work |
 | Gemini | Falls back to keyword-heuristic ATS scoring; résumé polish is unavailable |
+| Google Calendar | The Calendar settings page says syncing isn't set up; invites still go out as `.ics` email attachments |
 
 ### 1.3 Technologies
 
@@ -135,6 +136,7 @@ flowchart LR
 | Audit log with filters (action, actor), keyset paging, readable sentences | |
 | Candidate data-deletion request → admin approve (counts scope, type DELETE) / decline with reason | Deletes DB rows, R2 files, Clerk account |
 | Recording retention sweep (`RECORDING_RETENTION_DAYS`) | Opt-in |
+| Google Calendar sync (PRD FR-5.3) — connect at **Calendar** in the sidebar, any role | Interviews are written to each connected participant's own calendar, patched on reschedule and deleted on cancellation; their Google busy times are merged into the scheduling grid. Needs `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `CALENDAR_TOKEN_KEY` |
 | Light / dark / auto theme; responsive shell with mobile drawer | |
 | Error and 404 boundaries per section; inline form errors; user-facing copy kept free of vendor and configuration detail (`lib/error-copy.ts` filters anything that isn't an authored sentence) | Operator detail goes to the server log |
 
@@ -154,7 +156,6 @@ flowchart LR
 
 | Item | Detail |
 |---|---|
-| Google Calendar / external calendar integration (PRD FR-5.3) | Only `.ics` email attachments exist |
 | Organisation / team management UI, user invites | Not built |
 | Candidate availability / timezone capture | Not stored anywhere |
 | Export CSV (analytics, audit), retrying failed deletions, feedback drafts, cancellation reasons, device-check lobby | Not built (they appear in the design only) |

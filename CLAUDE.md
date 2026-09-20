@@ -99,6 +99,21 @@ parameter belongs *inside* the closing quote. Appending after it yields
 `...channel_binding=require"&connect_timeout=30`, which breaks the connection
 outright rather than fixing anything.
 
+**Google's OAuth redirect URI is matched character for character.** The one
+this app sends is derived from `NEXT_PUBLIC_APP_URL`
+(`googleRedirectUri()` in [`google-oauth.ts`](apps/web/src/lib/google-oauth.ts)),
+so a trailing slash on that variable, or `http` where the console has `https`,
+fails at the *end* of the consent flow with `redirect_uri_mismatch` — after the
+user has already granted access, which reads as "the app is broken".
+
+The same file's `access_type=offline` **and** `prompt=consent` both have to stay:
+Google returns a refresh token only on a first consent unless consent is
+re-requested, so dropping either one leaves a reconnecting user with an access
+token that expires in an hour and nothing to renew it with. The connection then
+works for exactly one hour and silently stops.
+`connectGoogleCalendar` refuses a grant with no refresh token rather than
+storing one that is already doomed.
+
 **Turbopack resolves modules differently from tsc, vitest and tsx.** All three
 of those map a `./foo.js` specifier onto `./foo.ts`; Turbopack does not, for a
 `"type": "module"` package whose `main` points at TypeScript source — which is
@@ -132,6 +147,13 @@ also proving it belongs to that org.
   (`users.ts`, `queries.ts`, `scheduling.ts`, `interview-token.ts`). The
   `set-role` script imports it and has no request context; `server-only` throws
   outside a React Server Component.
+- **Google free/busy is advisory, and deliberately not in
+  `findInterviewerConflict`.** The scheduling grid merges it into the same
+  `BusyInterval[]` the database bookings use (`loadPanelBusy` in
+  [`schedule/actions.ts`](apps/web/src/app/recruiter/schedule/actions.ts)), so a
+  recruiter sees a marked slot and can still book over it. Giving someone's
+  private calendar a hard veto over a booking is a different product decision,
+  not an oversight — and it would also let a Google outage block scheduling.
 - **`apps/web/CLAUDE.md` and `apps/web/AGENTS.md` are generated** by `next dev`
   and re-created if deleted. Commit them with your work rather than fighting them.
 

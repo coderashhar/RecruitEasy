@@ -5,8 +5,22 @@ describe("navigationFor", () => {
   it("gives ADMIN the recruiter nav plus administration", () => {
     const recruiter = navigationFor("RECRUITER");
     const admin = navigationFor("ADMIN");
-    expect(admin[0]).toEqual(recruiter[0]);
-    expect(admin[1].items.map((item) => item.href)).toEqual(["/admin/audit", "/admin/deletion-requests"]);
+    expect(admin.slice(0, recruiter.length)).toEqual(recruiter);
+
+    const administration = admin.at(-1);
+    expect(administration?.items.map((item) => item.href)).toEqual([
+      "/admin/audit",
+      "/admin/deletion-requests",
+    ]);
+  });
+
+  it("offers every role their own calendar settings", () => {
+    // Settings belong to the person, not the role — a candidate has the same
+    // calendar to connect as a recruiter.
+    for (const role of ["CANDIDATE", "INTERVIEWER", "RECRUITER", "ADMIN"] as const) {
+      const hrefs = navigationFor(role).flatMap((section) => section.items.map((item) => item.href));
+      expect(hrefs).toContain("/settings/calendar");
+    }
   });
 
   it("never shows administration to a recruiter", () => {

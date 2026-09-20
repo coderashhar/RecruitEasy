@@ -116,6 +116,29 @@ in-memory `Y.Doc` state per interview room — see ADR-002 in the plan.
    `judge0.conf`'s `AUTHN_TOKEN`) in `apps/web/.env.local`. Without this stack running, the room
    still works — editor, video, chat — the Run button is the only thing that needs it.
 
+10. **Google Calendar** (optional — interviews go onto participants' own calendars, and their
+    busy times show in the scheduling grid):
+
+    In the [Google Cloud console](https://console.cloud.google.com), enable the **Google Calendar
+    API**, then create an OAuth client ID of type *Web application* and add one authorized
+    redirect URI:
+
+    ```
+    http://localhost:3000/api/google/callback
+    ```
+
+    Google matches that URI character for character, so it must equal
+    `<NEXT_PUBLIC_APP_URL>/api/google/callback` exactly — including the scheme, and with no
+    trailing slash. Put the client id and secret in `apps/web/.env.local`, along with a key for
+    encrypting the stored tokens:
+
+    ```bash
+    openssl rand -hex 32   # -> CALENDAR_TOKEN_KEY
+    ```
+
+    Then connect an account at **Calendar** in the sidebar. Without any of this the page says so,
+    and interviews still arrive by email with an `.ics` attachment.
+
 ## Trying the interview room
 
 1. Sign up two accounts (or promote two seeded-adjacent real accounts with `set-role`, above): one
@@ -164,8 +187,13 @@ in-memory `Y.Doc` state per interview room — see ADR-002 in the plan.
 - **In transit:** TLS everywhere. Vercel serves the web app over HTTPS, Caddy terminates TLS for
   the realtime service and Judge0 (which only accepts code submissions from outside), and Neon, R2, LiveKit, Clerk and Resend are reached only over HTTPS/TLS.
 - **At rest:** Neon encrypts databases and backups at rest (AES-256), and Cloudflare R2 encrypts
-  every stored object (resumes, recordings) at rest. There is no separate application-level
-  encryption.
+  every stored object (resumes, recordings) at rest. On top of that, Google Calendar OAuth tokens
+  are encrypted by the application itself (AES-256-GCM under `CALENDAR_TOKEN_KEY`) before they are
+  stored — disk encryption alone wouldn't protect a live credential for someone's calendar in a
+  database dump or a read replica. Nothing else carries application-level encryption.
+- **Calendar scope:** the connection asks only for Google's free/busy view and permission to manage
+  the events it creates itself. It never reads the contents of anyone's calendar, and a
+  disconnect deletes the tokens and revokes the grant with Google.
 - **Access:** role checks in middleware *and* in each page and Server Action; every query is
   scoped to the caller's organisation. Resumes are served through an org-checked route; recordings
   through 15-minute signed links.

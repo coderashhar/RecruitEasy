@@ -3,6 +3,7 @@ import "server-only";
 import { after } from "next/server";
 import { prisma, type Interview, type InterviewStatus } from "@interviewhub/db";
 import type { RescheduleInterviewInput, UpdateInterviewStatusInput } from "@interviewhub/types";
+import { syncInterviewToCalendars } from "./calendar-sync";
 import { sendInterviewInvites } from "./interview-notices";
 import { broadcastToRoom } from "./realtime-broadcast";
 import { stopActiveRecording } from "./recording";
@@ -89,6 +90,7 @@ export async function updateInterviewStatus(
   // candidate was never told.
   if (input.status === "CANCELLED") {
     after(() => sendInterviewInvites(interview.id, "cancelled"));
+    after(() => syncInterviewToCalendars(interview.id, "cancelled"));
   }
 
   // A recording left running after the interview is closed out would keep
@@ -219,6 +221,7 @@ export async function rescheduleInterview(
   });
 
   after(() => sendInterviewInvites(interview.id, "rescheduled"));
+  after(() => syncInterviewToCalendars(interview.id, "rescheduled"));
 
   return result;
 }

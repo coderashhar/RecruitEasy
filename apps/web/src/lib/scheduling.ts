@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 import { prisma, type Interview } from "@interviewhub/db";
 import { INTERVIEWER_CAPABLE_ROLES, type ScheduleInterviewInput } from "@interviewhub/types";
+import { syncInterviewToCalendars } from "./calendar-sync";
 import { sendInterviewInvites } from "./interview-notices";
 
 export class SchedulingError extends Error {}
@@ -151,7 +152,27 @@ export async function scheduleInterviewForOrg(
   // transaction has committed, since after() also runs when a request fails.
   after(() => sendInterviewInvites(result.id, "scheduled"));
 
+  // And onto the Google Calendar of everyone who connected one, so the
+  // interview is on their day without anyone having to open an .ics.
+  after(() => syncInterviewToCalendars(result.id, "scheduled"));
+
   return result;
+}
+
+/**
+ * Which of `userIds` really are in this org, for a caller about to send them
+ * somewhere outside the database. getInterviewerBusy scopes its own query, but
+ * the Google free/busy lookup in lib/calendar-sync.ts takes bare ids, and an
+ * unscoped list there would let a posted id reveal whether some other org's
+ * user has a calendar connected.
+ */
+export async function orgMemberIds(orgId: string, userIds: string[]): Promise<string[]> {
+  if (userIds.length === 0) return [];
+  const rows = await prisma.user.findMany({
+    where: { id: { in: userIds }, orgId },
+    select: { id: true },
+  });
+  return rows.map((row) => row.id);
 }
 
 export interface BusyInterval {

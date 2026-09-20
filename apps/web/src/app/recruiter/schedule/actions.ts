@@ -2,9 +2,11 @@
 
 import { redirect } from "next/navigation";
 import { scheduleInterviewSchema } from "@interviewhub/types";
+import { getGoogleBusy } from "@/lib/calendar-sync";
 import { requireCurrentUser } from "@/lib/users";
 import {
   getInterviewerBusy,
+  orgMemberIds,
   scheduleInterviewForOrg,
   SchedulingError,
   type BusyInterval,
@@ -53,11 +55,29 @@ export async function scheduleInterview(formData: FormData): Promise<{ error?: s
  * The chosen panel's bookings for one week, read before a time is picked.
  * `weekStart` is an ISO instant computed in the browser, so the week lines up
  * with the recruiter's own calendar rather than the server's timezone.
+ *
+ * Two sources, one shape: interviews this app booked, and — for panel members
+ * who connected a Google Calendar — the busy blocks on it (PRD FR-5.3). The
+ * grid can't tell them apart and doesn't need to; either way the answer is
+ * "that person has something then".
+ *
+ * Only the panel's own ids are ever sent to Google. Membership of this org is
+ * re-checked first, inside getInterviewerBusy, and the Google lookup is
+ * restricted to the ids that survived it — so a userId posted straight at this
+ * action can't be used to probe whether a stranger's calendar is free.
  */
 export async function loadPanelBusy(interviewerIds: string[], weekStart: string): Promise<BusyInterval[]> {
   const { user } = await requireCurrentUser(["RECRUITER", "ADMIN"]);
   const from = new Date(weekStart);
   if (Number.isNaN(from.getTime()) || !Array.isArray(interviewerIds)) return [];
   const ids = interviewerIds.filter((id): id is string => typeof id === "string").slice(0, 20);
-  return getInterviewerBusy(user.orgId, ids, from, new Date(from.getTime() + WEEK_MS));
+  const to = new Date(from.getTime() + WEEK_MS);
+
+  const inOrg = await orgMemberIds(user.orgId, ids);
+  const [booked, googleBusy] = await Promise.all([
+    getInterviewerBusy(user.orgId, ids, from, to),
+    getGoogleBusy(inOrg, from, to),
+  ]);
+
+  return [...booked, ...googleBusy];
 }

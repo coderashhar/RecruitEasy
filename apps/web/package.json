@@ -9,7 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "set-role": "tsx src/scripts/set-role.ts"
+    "set-role": "tsx --env-file=.env.local src/scripts/set-role.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1131.0",

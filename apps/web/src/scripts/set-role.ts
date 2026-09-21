@@ -8,7 +8,13 @@
  * the shortcut produces a fully usable account rather than one that can sign in
  * but can't be added to an interview.
  *
- * Usage: npx tsx src/scripts/set-role.ts <email> <CANDIDATE|INTERVIEWER|RECRUITER|ADMIN>
+ * Usage (from the repo root):
+ *   npm run set-role --workspace=web -- <email> <CANDIDATE|INTERVIEWER|RECRUITER|ADMIN>
+ *
+ * The npm script passes `--env-file=.env.local`. Next.js loads that file for
+ * the app, but a plain tsx process doesn't, so without the flag this would
+ * see neither CLERK_SECRET_KEY nor DATABASE_URL. Running the file by hand
+ * needs the same flag.
  */
 import { createClerkClient } from "@clerk/backend";
 import { prisma } from "@interviewhub/db";
@@ -19,13 +25,13 @@ async function main() {
   const [email, role] = process.argv.slice(2);
 
   if (!email || !isRole(role)) {
-    console.error("Usage: npx tsx src/scripts/set-role.ts <email> <CANDIDATE|INTERVIEWER|RECRUITER|ADMIN>");
+    console.error("Usage: npm run set-role --workspace=web -- <email> <CANDIDATE|INTERVIEWER|RECRUITER|ADMIN>");
     process.exit(1);
   }
 
   const secretKey = process.env.CLERK_SECRET_KEY;
   if (!secretKey) {
-    console.error("CLERK_SECRET_KEY is not set — copy it from the Clerk dashboard into .env.local first.");
+    console.error("CLERK_SECRET_KEY is not set — copy it from the Clerk dashboard into apps/web/.env.local first.");
     process.exit(1);
   }
 

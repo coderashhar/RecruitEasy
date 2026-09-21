@@ -166,7 +166,7 @@ flowchart LR
 
 | # | Severity | Issue | Where | How to see it |
 |---|---|---|---|---|
-| KI-01 | Medium | `npm run set-role --workspace=web -- <email> <ROLE>` (the command in README and CLAUDE.md) fails with "CLERK_SECRET_KEY is not set", because the script doesn't load `.env.local`. **Workaround:** `cd apps/web && npx tsx --env-file=.env.local src/scripts/set-role.ts <email> <ROLE>` | `apps/web/package.json` script | Run the README command |
+| KI-01 | ~~Medium~~ **Fixed** | `npm run set-role --workspace=web -- <email> <ROLE>` used to fail with "CLERK_SECRET_KEY is not set", because a plain `tsx` process doesn't load `.env.local` the way Next.js does. The npm script now passes `--env-file=.env.local` | `apps/web/package.json` script | Run the README command against a signed-up account |
 | KI-02 | ~~Medium~~ **Fixed** | Errors thrown by the **Post job** and **Add candidate** forms (e.g. duplicate application) used to show the generic Next.js error screen. Both actions now return the message, the forms show it in a red banner above the fields and keep what was typed, and the app has its own error and 404 boundaries | `app/recruiter/jobs/new/*`, `app/recruiter/applications/new/*`, `app/**/error.tsx`, `app/**/not-found.tsx` | Add the same candidate to the same job twice — expect the inline banner |
 | KI-03 | Medium | The **integrity signals** list on the interview detail page is unbounded. One real interview has hundreds of "Switched away from the tab" rows, making the page ~6,000 px tall. | `app/recruiter/interviews/[id]/page.tsx` | Open an interview where the candidate alt-tabbed a lot |
 | KI-15 | ~~Medium~~ **Fixed** | User-facing errors named vendors and environment variables ("Set R2_ACCOUNT_ID…", "LiveKit's recording limit", "AI service not configured"), and the error page printed raw thrown messages including Prisma dumps | `lib/resume-availability.ts`, `lib/error-copy.ts`, `lib/recording.ts`, `lib/resume-polish.ts` | Click Résumé with storage unset — expect one short line, and the detail in the terminal |
@@ -417,11 +417,10 @@ npm run typecheck && npm run lint && npm test && npm run build
 
 `apps/realtime/src/server.integration.test.ts` boots the real server against a real Postgres. It needs `DATABASE_URL` in `apps/realtime/.env` and takes ~17 s.
 
-**Give yourself a role.** Sign up at `/sign-up`, then pick Candidate / Recruiter / Interviewer on `/onboarding`. To grant ADMIN, or to switch roles for testing (see KI-01 for why not the npm script):
+**Give yourself a role.** Sign up at `/sign-up`, then pick Candidate / Recruiter / Interviewer on `/onboarding`. To grant ADMIN, or to switch roles for testing, from the repo root:
 
 ```bash
-cd apps/web
-npx tsx --env-file=.env.local src/scripts/set-role.ts someone@example.com ADMIN
+npm run set-role --workspace=web -- someone@example.com ADMIN
 ```
 
 Then refresh the session: sign out and in again, or wait about a minute.
@@ -445,7 +444,7 @@ Use separate browsers or profiles (or one private window) to hold two sessions a
 | `Can't reach database server at …` | Neon branch waking from idle, or `connect_timeout` missing or outside the quotes | Add `&connect_timeout=30` inside the quotes in all three env files; retry |
 | Realtime crashes with `REALTIME_JWT_SECRET is not set — refusing to start` | Missing `apps/realtime/.env` | Create it with the same secret as web |
 | Room stuck on "Connecting…" / "Session expired" | Secrets differ between web and realtime, realtime not running, or wrong `NEXT_PUBLIC_REALTIME_URL` / `CORS_ORIGIN` | Make the secrets identical; `curl localhost:4000/healthz`; restart both |
-| `set-role` prints `CLERK_SECRET_KEY is not set` | KI-01 | Use `npx tsx --env-file=.env.local src/scripts/set-role.ts …` from `apps/web` |
+| `set-role` prints `CLERK_SECRET_KEY is not set` | `apps/web/.env.local` missing or has no `CLERK_SECRET_KEY` (KI-01, the script not reading that file, is fixed) | Copy `.env.example` to `.env.local` and fill it in |
 | Role change not reflected | Old session token | Sign out/in, or wait ~60 s and reload |
 | Run always says "execution service is unavailable" | Judge0 not running or token mismatch | `docker compose ps` in `infra/judge0`; `JUDGE0_AUTH_TOKEN` must equal `AUTHN_TOKEN` |
 | "Résumé" download says file storage may not be configured | R2 env missing | Fill the `R2_*` vars, then apply again (old uploads were never stored) |
@@ -1172,8 +1171,8 @@ These states need data or services that weren't available during this capture. C
 | SET-02 | Database | Migrations apply cleanly | Empty personal DB branch | 1. `npm run db:migrate`<br>2. `npm run db:studio` | — | 18 tables listed in Studio | | | |
 | SET-03 | Seed | Seed is idempotent | SET-02 | 1. `npm run db:seed` twice | — | Both runs print "Seeded org "default" — 6 users, 2 jobs, 3 applications, 1 interview."; no duplicates in Studio | | | |
 | SET-04 | Quality gates | Repo checks pass | Deps installed | 1. `npm run typecheck && npm run lint && npm test && npm run build` | — | All four succeed (lint may show 1 pre-existing warning) | | | |
-| SET-05 | set-role script | Grant ADMIN | Account signed up | 1. From `apps/web`: `npx tsx --env-file=.env.local src/scripts/set-role.ts <email> ADMIN`<br>2. Sign out/in | ADM email | Prints `<email> → ADMIN`; sidebar shows Administration section | | | |
-| SET-06 | set-role npm script | README command | — | 1. `npm run set-role --workspace=web -- <email> ADMIN` | — | **Known failure KI-01:** "CLERK_SECRET_KEY is not set" — confirm, and confirm the workaround in SET-05 | | | |
+| SET-05 | set-role script | Grant ADMIN | Account signed up | 1. `npm run set-role --workspace=web -- <email> ADMIN`<br>2. Sign out/in | ADM email | Prints `<email> → ADMIN`; sidebar shows Administration section | | | |
+| SET-06 | set-role npm script | Unknown account is refused | — | 1. `npm run set-role --workspace=web -- nobody@example.invalid ADMIN` | — | Prints "No Clerk user found for nobody@example.invalid" and changes nothing — proves the script read `CLERK_SECRET_KEY` from `.env.local` (KI-01 regression check) | | | |
 
 #### Authentication & onboarding
 

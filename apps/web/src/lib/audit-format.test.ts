@@ -13,6 +13,12 @@ describe("describeAuditAction", () => {
     expect(result.parts.filter((part) => part.strong).map((part) => part.text)).toEqual(["Interviewing", "Offer"]);
   });
 
+  it("says when a status change overturned a decision", () => {
+    expect(sentence("application.status_changed", { from: "REJECTED", to: "SCREENING", overturned: true })).toBe(
+      "Overturned a decision: moved an application from Rejected to Screening",
+    );
+  });
+
   it("counts what a data deletion removed", () => {
     expect(sentence("privacy.data_deleted", { applications: 3, files: 1 })).toBe(
       "Deleted a candidate's data · 3 applications, 1 file",

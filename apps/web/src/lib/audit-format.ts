@@ -45,7 +45,14 @@ export function describeAuditAction(action: string, rawMeta: unknown): AuditSent
       return { parts: [text("Created an application")] };
     case "application.status_changed":
       return meta.from && meta.to
-        ? { parts: [text("Moved an application from "), strong(word(meta.from)), text(" to "), strong(word(meta.to))] }
+        ? {
+            parts: [
+              text(meta.overturned === true ? "Overturned a decision: moved an application from " : "Moved an application from "),
+              strong(word(meta.from)),
+              text(" to "),
+              strong(word(meta.to)),
+            ],
+          }
         : { parts: [text("Changed an application's status")] };
     case "application.shortlisted":
       return { parts: [text("Shortlisted an application")] };
@@ -97,6 +104,8 @@ export function describeAuditAction(action: string, rawMeta: unknown): AuditSent
       };
     case "privacy.deletion_rejected":
       return { parts: [text("Declined a deletion request")] };
+    case "privacy.deletion_closed":
+      return { parts: [text("Closed a deletion request · account already gone, nothing to delete")] };
     default:
       return { parts: [text(action)] };
   }

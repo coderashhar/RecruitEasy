@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   approveDeletion,
+  closeDeletion,
   previewDeletion,
   rejectDeletion,
 } from "@/app/admin/deletion-requests/actions";
@@ -139,7 +140,15 @@ export function DeletionRequestActions({
     startTransition(async () => {
       const response = await rejectDeletion(requestId, text);
       if (response.error) toast.error(response.error);
-      else toast.success(accountGone ? "Request closed." : "Request declined. The candidate has been told why.");
+      else toast.success("Request declined. The candidate has been told why.");
+    });
+  }
+
+  function handleClose() {
+    startTransition(async () => {
+      const response = await closeDeletion(requestId);
+      if (response.error) toast.error(response.error);
+      else toast.success("Request closed. There was nothing left to delete.");
     });
   }
 
@@ -158,7 +167,7 @@ export function DeletionRequestActions({
 
   if (accountGone) {
     return (
-      <Button variant="outline" disabled={pending} onClick={() => handleReject("The account was already removed.")}>
+      <Button variant="outline" disabled={pending} onClick={handleClose}>
         Close request
       </Button>
     );

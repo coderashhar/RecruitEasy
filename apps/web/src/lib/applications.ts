@@ -1,11 +1,12 @@
 import "server-only";
 
-import { Prisma, prisma, type Application } from "@interviewhub/db";
+import { Prisma, prisma, type Application, type ApplicationStatus } from "@interviewhub/db";
 import type {
   CreateApplicationInput,
   SetShortlistedInput,
   UpdateApplicationStatusInput,
 } from "@interviewhub/types";
+import { classifyStatusChange } from "./application-status";
 import { applicationStatusEmail } from "./email-templates";
 import { notifyUser } from "./notifications";
 
@@ -68,13 +69,19 @@ export async function createApplicationForOrg(
  * Moves an application to a new status — this is what records the hiring
  * decision (PRD workflow step 10: OFFER / HIRED / REJECTED).
  *
- * No transition table: unlike interview lifecycle (scheduled interviews carry
- * real-world consequences — a room, a token, other people's calendars — that
- * make an illegal transition actively harmful), an application's status is a
- * single label a recruiter is directly setting by hand. Any status to any
- * other is a legitimate correction (moving someone back from REJECTED to
- * SCREENING because a decision was reversed is a real, valid action, not a
- * bug to guard against).
+ * No full transition table: unlike the interview lifecycle, where an illegal
+ * transition misrepresents a room, a token and other people's calendars, an
+ * application's status is a label a recruiter sets by hand, and any move can
+ * be a legitimate correction. Two moves are handled differently
+ * (classifyStatusChange):
+ *
+ * - Setting the status it already has writes nothing and emails nobody. Bulk
+ *   "Move to" over a selection that included such rows used to re-send the
+ *   candidate the same status email.
+ * - Overturning a decision (leaving HIRED or REJECTED) needs `confirmOverturn`.
+ *   The candidate was already told the decision and will be emailed the new
+ *   status too, so a stray change of a <select> shouldn't be able to do that.
+ *   Checked here, not only in the UI: Server Actions are directly invocable.
  */
 export async function updateApplicationStatus(
   orgId: string,
@@ -86,6 +93,14 @@ export async function updateApplicationStatus(
   });
   if (!application) {
     throw new ApplicationError("Application not found in your organization.");
+  }
+
+  const change = classifyStatusChange(application.status, input.status);
+  if (change === "unchanged") return application;
+  if (change === "overturn" && !input.confirmOverturn) {
+    throw new ApplicationError(
+      `This candidate was already ${application.status === "HIRED" ? "hired" : "rejected"}. Confirm to change a decision they have been told.`,
+    );
   }
 
   const result = await prisma.$transaction(async (tx) => {
@@ -110,7 +125,11 @@ export async function updateApplicationStatus(
         actorId,
         action: "application.status_changed",
         target: application.id,
-        meta: { from: application.status, to: input.status },
+        meta: {
+          from: application.status,
+          to: input.status,
+          ...(change === "overturn" && { overturned: true }),
+        },
       },
     });
 
@@ -123,6 +142,15 @@ export async function updateApplicationStatus(
   notifyApplicationStatusChange(application.id, input.status).catch(() => {});
 
   return result;
+}
+
+/** The current status of an application in this org, or null if it isn't one of the org's. */
+export async function getApplicationStatus(orgId: string, applicationId: string): Promise<ApplicationStatus | null> {
+  const application = await prisma.application.findFirst({
+    where: { id: applicationId, job: { orgId } },
+    select: { status: true },
+  });
+  return application?.status ?? null;
 }
 
 /**

@@ -19,6 +19,8 @@ export type CreateApplicationInput = z.infer<typeof createApplicationSchema>;
 export const updateApplicationStatusSchema = z.object({
   applicationId: z.string().min(1),
   status: applicationStatusSchema,
+  /** Required to move an application out of HIRED or REJECTED — see lib/application-status.ts. */
+  confirmOverturn: z.boolean().optional(),
 });
 export type UpdateApplicationStatusInput = z.infer<typeof updateApplicationStatusSchema>;
 

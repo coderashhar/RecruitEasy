@@ -25,6 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { bulkChangeApplicationStatus } from "@/app/recruiter/applications/actions";
+import { classifyStatusChange } from "@/lib/application-status";
 import { cn } from "@/lib/utils";
 import { ShortlistToggle } from "./shortlist-toggle";
 
@@ -138,16 +139,27 @@ export function PipelineTable({ rows: initial, canManage = true }: { rows: Pipel
 
     startTransition(async () => {
       try {
-        await bulkChangeApplicationStatus(ids, status);
+        const result = await bulkChangeApplicationStatus(ids, status);
+        // Only rows the server actually moved change here; decided ones keep
+        // their status, which is the point of skipping them.
         setRows((prev) =>
           prev.map((row) =>
-            ids.includes(row.applicationId) ? { ...row, status } : row,
+            ids.includes(row.applicationId) && classifyStatusChange(row.status, status) === "move"
+              ? { ...row, status }
+              : row,
           ),
         );
         setSelected(new Set());
-        toast.success(
-          `${ids.length} application${ids.length > 1 ? "s" : ""} moved to ${APPLICATION_STATUS[status].label}.`,
-        );
+        const label = APPLICATION_STATUS[status].label;
+        const plural = (n: number) => `${n} application${n === 1 ? "" : "s"}`;
+        const notes = [
+          result.unchanged > 0 && `${plural(result.unchanged)} already ${label}`,
+          result.decided > 0 &&
+            `${plural(result.decided)} left as is: hired or rejected. Change those one at a time from the candidate's page`,
+        ].filter(Boolean);
+        const message = `${plural(result.moved)} moved to ${label}.`;
+        if (result.decided > 0) toast.warning(message, { description: notes.join(" · ") });
+        else toast.success(message, notes.length > 0 ? { description: notes.join(" · ") } : undefined);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Bulk update failed.");
       }

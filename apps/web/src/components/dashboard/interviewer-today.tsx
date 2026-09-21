@@ -4,6 +4,7 @@ import { CalloutBanner } from "@/components/broadsheet/panels";
 import { relativeTime } from "@/components/broadsheet/relative-time";
 import { PageHeader, SectionLabel } from "@/components/broadsheet/section";
 import { Button } from "@/components/ui/button";
+import { isAwaitingOutcome } from "@/lib/interview-timing";
 import { getFeedbackDue, getInterviewerSchedule } from "@/lib/queries";
 
 /** Feedback is expected within a day of the interview ending. */
@@ -73,8 +74,10 @@ export async function InterviewerToday({ user }: { user: { id: string; orgId: st
             <p className="py-4 text-sm text-muted-foreground">Nothing scheduled. New invites land here.</p>
           ) : (
             schedule.map((interview) => {
+              const awaitingOutcome = isAwaitingOutcome(interview, now);
               const joinable =
-                interview.status === "IN_PROGRESS" || interview.scheduledAt.getTime() - now.getTime() <= JOINABLE_MS;
+                !awaitingOutcome &&
+                (interview.status === "IN_PROGRESS" || interview.scheduledAt.getTime() - now.getTime() <= JOINABLE_MS);
               return (
                 <div
                   key={interview.id}
@@ -97,7 +100,14 @@ export async function InterviewerToday({ user }: { user: { id: string; orgId: st
                       <LocalTime value={interview.scheduledAt} format="dayMonth" />
                     </div>
                   </div>
-                  {joinable ? (
+                  {awaitingOutcome ? (
+                    <Link
+                      href={`/recruiter/interviews/${interview.id}`}
+                      className="shrink-0 text-[13px] text-warning hover:underline"
+                    >
+                      Record outcome
+                    </Link>
+                  ) : joinable ? (
                     <Button size="sm" nativeButton={false} render={<Link href={`/interview/${interview.id}`}>Join</Link>} />
                   ) : (
                     <span className="shrink-0 font-mono text-xs text-muted-foreground">

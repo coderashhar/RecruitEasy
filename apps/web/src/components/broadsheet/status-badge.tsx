@@ -146,6 +146,23 @@ export function InterviewStatusBadge({ status }: { status: InterviewStatus }) {
   );
 }
 
+/**
+ * Stands in for "Scheduled" / "In progress" once the slot is over and nothing
+ * was recorded (lib/interview-timing.ts). Staff are asked for the outcome; the
+ * candidate is told one is coming, not asked to do anything.
+ */
+export function AwaitingOutcomeBadge({ audience = "staff" }: { audience?: "staff" | "candidate" }) {
+  return audience === "staff" ? (
+    <StatusBadge tone="warning" shape="dot">
+      Outcome needed
+    </StatusBadge>
+  ) : (
+    <StatusBadge tone="neutral" shape="hollow">
+      Awaiting outcome
+    </StatusBadge>
+  );
+}
+
 export function RecommendationBadge({
   recommendation,
   children,

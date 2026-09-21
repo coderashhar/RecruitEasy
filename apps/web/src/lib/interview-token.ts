@@ -2,6 +2,7 @@ import "server-only";
 
 import jwt from "jsonwebtoken";
 import type { InterviewParticipantRole } from "@interviewhub/db";
+import { OUTCOME_GRACE_MINUTES } from "./interview-timing";
 
 /**
  * Long enough to outlast the scheduled slot plus an interview that runs over.
@@ -9,8 +10,7 @@ import type { InterviewParticipantRole } from "@interviewhub/db";
  * a reconnecting client asks for, so all three agree on how long a session is.
  */
 export function interviewTokenLifetimeSeconds(durationMins: number): number {
-  const GRACE_PERIOD_MINUTES = 30;
-  return (durationMins + GRACE_PERIOD_MINUTES) * 60;
+  return (durationMins + OUTCOME_GRACE_MINUTES) * 60;
 }
 
 export interface MintInterviewTokenInput {

@@ -94,7 +94,7 @@ export function CandidateInterviewRows({
               </div>
             </div>
             <div className="flex items-center gap-4">
-              {joinable ? (
+              {joinable && !isAwaitingOutcome(interview) ? (
                 <Link href={`/interview/${interview.id}`} className="text-[13.5px] text-primary hover:underline">
                   Open room
                 </Link>

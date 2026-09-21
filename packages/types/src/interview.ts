@@ -19,10 +19,17 @@ export type InterviewStatus = z.infer<typeof interviewStatusSchema>;
  */
 export const submittedDateSchema = z.union([z.date(), z.string().min(1)]).pipe(z.coerce.date());
 
+/**
+ * The longest an interview can be booked for. Also the bound a query needs
+ * when it looks back for interviews that could still be running, since SQL
+ * here can't add `durationMins` to `scheduledAt`.
+ */
+export const MAX_INTERVIEW_DURATION_MINS = 240;
+
 export const scheduleInterviewSchema = z.object({
   applicationId: z.string().min(1),
   scheduledAt: submittedDateSchema,
-  durationMins: z.number().int().min(15).max(240).default(60),
+  durationMins: z.number().int().min(15).max(MAX_INTERVIEW_DURATION_MINS).default(60),
   interviewerIds: z.array(z.string().min(1)).min(1),
   observerIds: z.array(z.string().min(1)).default([]),
   round: z.number().int().min(1).default(1),
@@ -32,7 +39,7 @@ export type ScheduleInterviewInput = z.infer<typeof scheduleInterviewSchema>;
 export const rescheduleInterviewSchema = z.object({
   interviewId: z.string().min(1),
   scheduledAt: submittedDateSchema,
-  durationMins: z.number().int().min(15).max(240),
+  durationMins: z.number().int().min(15).max(MAX_INTERVIEW_DURATION_MINS),
 });
 export type RescheduleInterviewInput = z.infer<typeof rescheduleInterviewSchema>;
 

@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma, type Prisma } from "@interviewhub/db";
 import { INTERVIEWER_CAPABLE_ROLES } from "@interviewhub/types";
+import { currentLookbackStart, isCurrentInterview } from "./interview-timing";
 import { INTEGRITY_SIGNALS_SHOWN, summarizeIntegritySignals, type IntegritySignalSummary } from "./integrity";
 
 /**
@@ -34,18 +35,45 @@ export async function getRecruiterPipeline(orgId: string) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Current vs past
+//
+// "Current" is isCurrentInterview in interview-timing.ts: IN_PROGRESS, or
+// SCHEDULED and not yet past its slot plus the grace period. SQL here can't add
+// durationMins to scheduledAt, so each query below fetches a superset and
+// makes the exact cut in JS. The two supersets overlap only in the recent
+// SCHEDULED rows, and the cut sends each of those to exactly one side.
+// ---------------------------------------------------------------------------
+
+/** Every current interview, plus SCHEDULED ones that may have just gone past. */
+function currentSuperset(now: Date): Prisma.InterviewWhereInput[] {
+  return [
+    { status: "IN_PROGRESS" },
+    { status: "SCHEDULED", scheduledAt: { gte: currentLookbackStart(now) } },
+  ];
+}
+
+/** Every past interview, plus SCHEDULED ones that started but may still be current. */
+function pastSuperset(now: Date): Prisma.InterviewWhereInput {
+  return {
+    status: { not: "IN_PROGRESS" },
+    OR: [{ status: { not: "SCHEDULED" } }, { scheduledAt: { lt: now } }],
+  };
+}
+
+/** Counts current interviews. Fetches the few superset rows rather than trusting count(). */
+async function countCurrent(where: Prisma.InterviewWhereInput, now: Date): Promise<number> {
+  const rows = await prisma.interview.findMany({
+    where: { ...where, OR: currentSuperset(now) },
+    select: { status: true, scheduledAt: true, durationMins: true },
+  });
+  return rows.filter((row) => isCurrentInterview(row, now)).length;
+}
+
 export async function getUpcomingInterviews(orgId: string) {
-  return prisma.interview.findMany({
-    where: {
-      application: { job: { orgId } },
-      // An interview being run right now is still "current", not past — and
-      // its scheduledAt is already behind us, so filtering on time alone
-      // would drop it off the dashboard the moment it starts.
-      OR: [
-        { status: "SCHEDULED", scheduledAt: { gte: new Date() } },
-        { status: "IN_PROGRESS" },
-      ],
-    },
+  const now = new Date();
+  const rows = await prisma.interview.findMany({
+    where: { application: { job: { orgId } }, OR: currentSuperset(now) },
     orderBy: { scheduledAt: "asc" },
     include: {
       application: {
@@ -54,6 +82,7 @@ export async function getUpcomingInterviews(orgId: string) {
       participants: { include: { user: { select: { id: true, name: true, role: true } } } },
     },
   });
+  return rows.filter((row) => isCurrentInterview(row, now));
 }
 
 export async function getCandidateOverview(userId: string) {
@@ -76,34 +105,30 @@ export async function getCandidateOverview(userId: string) {
       },
     }),
     prisma.interview.findMany({
-      where: {
-        participants: { some: { userId } },
-        OR: [{ status: "SCHEDULED", scheduledAt: { gte: now } }, { status: "IN_PROGRESS" }],
-      },
+      where: { participants: { some: { userId } }, OR: currentSuperset(now) },
       orderBy: { scheduledAt: "asc" },
       include: {
         application: { include: { job: true } },
         participants: { where: { role: "INTERVIEWER" }, include: { user: { select: { name: true } } } },
       },
     }),
-    // The exact complement of the query above: reached a terminal state, or
-    // its slot passed without ever starting. IN_PROGRESS is excluded here
-    // because the upcoming query claims it — an interview being run right now
-    // is not history, and showing it as such would pull it out of the
-    // "Upcoming" card, the only place carrying a link into the room, at the
-    // exact moment the candidate still needs to join.
+    // The complement of the list above, after the cut below: reached a
+    // terminal state, or its slot and grace period passed with nothing
+    // recorded. An interview that has started but not yet been marked in
+    // progress stays in "Upcoming" — the only card carrying a link into the
+    // room — until then, so a candidate a few minutes late can still join.
     prisma.interview.findMany({
-      where: {
-        participants: { some: { userId } },
-        status: { not: "IN_PROGRESS" },
-        OR: [{ status: { not: "SCHEDULED" } }, { scheduledAt: { lt: now } }],
-      },
+      where: { participants: { some: { userId } }, ...pastSuperset(now) },
       orderBy: { scheduledAt: "desc" },
       include: { application: { include: { job: true } } },
     }),
   ]);
 
-  return { applications, upcomingInterviews, pastInterviews };
+  return {
+    applications,
+    upcomingInterviews: upcomingInterviews.filter((interview) => isCurrentInterview(interview, now)),
+    pastInterviews: pastInterviews.filter((interview) => !isCurrentInterview(interview, now)),
+  };
 }
 
 export async function getSchedulableApplications(orgId: string) {
@@ -256,10 +281,6 @@ export async function getPotentialInterviewers(orgId: string) {
 
 const ACTIVE_APPLICATION: Prisma.ApplicationWhereInput = { status: { notIn: ["HIRED", "REJECTED"] } };
 
-function upcomingOrLive(now: Date) {
-  return [{ status: "SCHEDULED" as const, scheduledAt: { gte: now } }, { status: "IN_PROGRESS" as const }];
-}
-
 /**
  * The small numbers beside sidebar items. Each is the count of a list one
  * click away, so every query mirrors the page it points at.
@@ -270,24 +291,22 @@ export async function getNavCounts(user: { id: string; orgId: string }, role: st
   if (role === "CANDIDATE") {
     const [applications, upcomingInterviews] = await Promise.all([
       prisma.application.count({ where: { candidateId: user.id } }),
-      prisma.interview.count({
-        where: { participants: { some: { userId: user.id } }, OR: upcomingOrLive(now) },
-      }),
+      countCurrent({ participants: { some: { userId: user.id } } }, now),
     ]);
     return { applications, upcomingInterviews };
   }
 
   if (role === "INTERVIEWER") {
     const [upcomingInterviews, feedbackDue] = await Promise.all([
-      prisma.interview.count({
-        where: {
+      countCurrent(
+        {
           application: { job: { orgId: user.orgId } },
           // Any participant row, as on the My interviews page this count points at —
           // an interviewer added as an observer sees that interview there too.
           participants: { some: { userId: user.id } },
-          OR: upcomingOrLive(now),
         },
-      }),
+        now,
+      ),
       prisma.interview.count({ where: feedbackDueWhere(user) }),
     ]);
     return { upcomingInterviews, feedbackDue };
@@ -295,7 +314,7 @@ export async function getNavCounts(user: { id: string; orgId: string }, role: st
 
   const [activeApplications, upcomingInterviews, pendingDeletions] = await Promise.all([
     prisma.application.count({ where: { job: { orgId: user.orgId }, ...ACTIVE_APPLICATION } }),
-    prisma.interview.count({ where: { application: { job: { orgId: user.orgId } }, OR: upcomingOrLive(now) } }),
+    countCurrent({ application: { job: { orgId: user.orgId } } }, now),
     role === "ADMIN"
       ? prisma.dataDeletionRequest.count({ where: { orgId: user.orgId, status: "PENDING" } })
       : Promise.resolve(0),
@@ -330,11 +349,12 @@ export async function getFeedbackDue(user: { id: string; orgId: string }) {
 
 /** An interviewer's own upcoming and live interviews, soonest first. */
 export async function getInterviewerSchedule(user: { id: string; orgId: string }) {
-  return prisma.interview.findMany({
+  const now = new Date();
+  const rows = await prisma.interview.findMany({
     where: {
       application: { job: { orgId: user.orgId } },
       participants: { some: { userId: user.id, role: "INTERVIEWER" } },
-      OR: upcomingOrLive(new Date()),
+      OR: currentSuperset(now),
     },
     orderBy: { scheduledAt: "asc" },
     include: {
@@ -343,6 +363,7 @@ export async function getInterviewerSchedule(user: { id: string; orgId: string }
       },
     },
   });
+  return rows.filter((row) => isCurrentInterview(row, now));
 }
 
 /**
@@ -367,22 +388,24 @@ export async function getInterviewList(orgId: string, participantId?: string) {
 
   const [upcoming, past] = await Promise.all([
     prisma.interview.findMany({
-      where: { ...scope, OR: upcomingOrLive(now) },
+      where: { ...scope, OR: currentSuperset(now) },
       orderBy: { scheduledAt: "asc" },
       include,
     }),
+    // take applies before the cut, so the handful of still-current rows at the
+    // head of this list can leave it a little short of 50. Harmless for a
+    // history list, and cheaper than an unbounded read.
     prisma.interview.findMany({
-      where: {
-        ...scope,
-        status: { not: "IN_PROGRESS" },
-        OR: [{ status: { not: "SCHEDULED" } }, { scheduledAt: { lt: now } }],
-      },
+      where: { ...scope, ...pastSuperset(now) },
       orderBy: { scheduledAt: "desc" },
       take: 50,
       include,
     }),
   ]);
-  return { upcoming, past };
+  return {
+    upcoming: upcoming.filter((interview) => isCurrentInterview(interview, now)),
+    past: past.filter((interview) => !isCurrentInterview(interview, now)),
+  };
 }
 
 /** The org's jobs with how many applications each holds, and how many are still open. */

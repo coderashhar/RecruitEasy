@@ -1,4 +1,5 @@
 import type { InterviewStatus } from "@interviewhub/db";
+import { MAX_INTERVIEW_DURATION_MINS } from "@interviewhub/types";
 
 // Pure, no "server-only": the room's header clock (a Client Component) and the
 // server-rendered lists must agree on the moment an interview stops being
@@ -32,4 +33,33 @@ export function isAwaitingOutcome(
 ): boolean {
   if (interview.status !== "SCHEDULED" && interview.status !== "IN_PROGRESS") return false;
   return now.getTime() >= slotEndsAt(interview).getTime() + OUTCOME_GRACE_MINUTES * 60_000;
+}
+
+/**
+ * Whether an interview still belongs in "upcoming" lists, the ones that link
+ * into the room: live now, or not yet over.
+ *
+ * A SCHEDULED interview stays current past its start time, until its slot and
+ * the grace period are over. Cutting at the start time instead dropped it from
+ * the candidate's "Upcoming" card, the only place with a link into the room, at
+ * the exact moment they needed it, unless an interviewer had already pressed
+ * start. IN_PROGRESS is always current, however old: the UI flags an overdue
+ * one with isAwaitingOutcome rather than hiding it.
+ */
+export function isCurrentInterview(
+  interview: { status: InterviewStatus; scheduledAt: Date; durationMins: number },
+  now: Date = new Date(),
+): boolean {
+  if (interview.status === "IN_PROGRESS") return true;
+  return interview.status === "SCHEDULED" && !isAwaitingOutcome(interview, now);
+}
+
+/**
+ * The earliest start a current SCHEDULED interview can have: the longest
+ * possible slot plus the grace period. Queries filter on this in SQL, which
+ * can't add `durationMins` to `scheduledAt`, then make the exact cut with
+ * isCurrentInterview.
+ */
+export function currentLookbackStart(now: Date): Date {
+  return new Date(now.getTime() - (MAX_INTERVIEW_DURATION_MINS + OUTCOME_GRACE_MINUTES) * 60_000);
 }

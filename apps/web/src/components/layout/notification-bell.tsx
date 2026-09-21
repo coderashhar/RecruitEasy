@@ -124,6 +124,15 @@ export function NotificationBell() {
               ))
             )}
           </div>
+          {/* The dropdown only holds unread ones, so this is the only way back
+              to anything already read. */}
+          <a
+            href="/notifications"
+            onClick={() => setOpen(false)}
+            className="block border-t border-hairline px-3.5 py-2.5 text-center text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            View all notifications
+          </a>
         </div>
       )}
     </div>

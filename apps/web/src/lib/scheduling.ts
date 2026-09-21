@@ -3,7 +3,11 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 import { prisma, type Interview } from "@interviewhub/db";
-import { INTERVIEWER_CAPABLE_ROLES, type ScheduleInterviewInput } from "@interviewhub/types";
+import {
+  INTERVIEWER_CAPABLE_ROLES,
+  MAX_INTERVIEW_DURATION_MINS,
+  type ScheduleInterviewInput,
+} from "@interviewhub/types";
 import { syncInterviewToCalendars } from "./calendar-sync";
 import { sendInterviewInvites } from "./interview-notices";
 
@@ -205,9 +209,9 @@ export async function getInterviewerBusy(
       user: { id: { in: interviewerIds }, orgId },
       interview: {
         status: { in: ["SCHEDULED", "IN_PROGRESS"] },
-        // The longest interview is 240 minutes, so anything starting earlier
+        // Nothing can run longer than MAX_INTERVIEW_DURATION_MINS, so anything starting earlier
         // than that before the window cannot reach into it.
-        scheduledAt: { gte: new Date(from.getTime() - 240 * 60_000), lt: to },
+        scheduledAt: { gte: new Date(from.getTime() - MAX_INTERVIEW_DURATION_MINS * 60_000), lt: to },
       },
     },
     select: { userId: true, interview: { select: { scheduledAt: true, durationMins: true } } },

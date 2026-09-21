@@ -4,11 +4,12 @@ import { RUBRIC_CRITERIA } from "@interviewhub/types";
 import { LocalTime } from "@/components/broadsheet/local-time";
 import { CalloutBanner } from "@/components/broadsheet/panels";
 import { PageHeader, SectionLabel } from "@/components/broadsheet/section";
-import { InterviewStatusBadge, RecommendationBadge } from "@/components/broadsheet/status-badge";
+import { AwaitingOutcomeBadge, InterviewStatusBadge, RecommendationBadge } from "@/components/broadsheet/status-badge";
 import { Button } from "@/components/ui/button";
 import { InterviewStatusActions } from "@/components/interview/interview-status-actions";
 import { RecordingPlayer } from "@/components/interview/recording-player";
 import { INTERVIEWER_STATUS_MOVES } from "@/lib/interview-lifecycle";
+import { isAwaitingOutcome } from "@/lib/interview-timing";
 import { describeIntegritySignal } from "@/lib/integrity";
 import { getIntegritySignalSummary, getInterviewDetail, getPotentialInterviewers } from "@/lib/queries";
 import { getRecordingForReview } from "@/lib/recording";
@@ -46,6 +47,8 @@ export default async function InterviewDetailPage({
   const isParticipant = interview.participants.some((participant) => participant.userId === user.id);
   const myFeedback = interview.feedback.find((entry) => entry.interviewerId === user.id);
   const live = interview.status === "SCHEDULED" || interview.status === "IN_PROGRESS";
+  // Still open, but its slot is over: offer the outcome, not the room.
+  const awaitingOutcome = isAwaitingOutcome(interview);
   const ended = new Date(interview.scheduledAt.getTime() + interview.durationMins * 60_000);
   const feedbackDueAt = new Date(ended.getTime() + 24 * 60 * 60 * 1000);
 
@@ -79,13 +82,22 @@ export default async function InterviewDetailPage({
         }
         actions={
           <>
-            <InterviewStatusBadge status={interview.status} />
-            {live && isParticipant && (
+            {awaitingOutcome ? <AwaitingOutcomeBadge /> : <InterviewStatusBadge status={interview.status} />}
+            {live && !awaitingOutcome && isParticipant && (
               <Button nativeButton={false} render={<Link href={`/interview/${interview.id}`}>Join interview</Link>} />
             )}
           </>
         }
       />
+
+      {awaitingOutcome && (canManage || isInterviewerHere) && (
+        <CalloutBanner tone="warning" title="This slot has ended, but no outcome was recorded" className="mt-6">
+          It was due to finish at <LocalTime value={ended} format="datetime" />.{" "}
+          {canManage
+            ? "Mark it completed if it went ahead, or record a no-show or cancellation. Nothing changes on its own."
+            : "Mark it completed if it went ahead. A recruiter records no-shows and cancellations."}
+        </CalloutBanner>
+      )}
 
       {canManage && (live || interview.status === "COMPLETED") && (
         <div className="mt-6 flex flex-wrap items-start gap-2.5 border-t border-rule-strong pt-4">

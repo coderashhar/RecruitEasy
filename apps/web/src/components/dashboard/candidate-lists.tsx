@@ -1,7 +1,12 @@
 import Link from "next/link";
 import type { ApplicationStatus, InterviewStatus } from "@interviewhub/db";
 import { LocalTime } from "@/components/broadsheet/local-time";
-import { ApplicationStatusBadge, InterviewStatusBadge } from "@/components/broadsheet/status-badge";
+import {
+  ApplicationStatusBadge,
+  AwaitingOutcomeBadge,
+  InterviewStatusBadge,
+} from "@/components/broadsheet/status-badge";
+import { isAwaitingOutcome } from "@/lib/interview-timing";
 
 export interface CandidateApplicationItem {
   id: string;
@@ -89,10 +94,14 @@ export function CandidateInterviewRows({
               </div>
             </div>
             <div className="flex items-center gap-4">
-              {joinable ? (
+              {joinable && !isAwaitingOutcome(interview) ? (
                 <Link href={`/interview/${interview.id}`} className="text-[13.5px] text-primary hover:underline">
                   Open room
                 </Link>
+              ) : isAwaitingOutcome(interview) ? (
+                // "Scheduled" on an interview from last week reads as if it is
+                // still to come.
+                <AwaitingOutcomeBadge audience="candidate" />
               ) : (
                 <InterviewStatusBadge status={interview.status} />
               )}

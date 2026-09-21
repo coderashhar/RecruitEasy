@@ -14,6 +14,11 @@ describe("navigationFor", () => {
     ]);
   });
 
+  it("puts notifications in the candidate's sidebar", () => {
+    const hrefs = navigationFor("CANDIDATE").flatMap((section) => section.items.map((item) => item.href));
+    expect(hrefs).toContain("/notifications");
+  });
+
   it("offers every role their own calendar settings", () => {
     // Settings belong to the person, not the role — a candidate has the same
     // calendar to connect as a recruiter.

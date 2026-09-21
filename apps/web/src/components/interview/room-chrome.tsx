@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import type { RecordingRoomState } from "@interviewhub/types";
+import { relativeTime } from "@/components/broadsheet/relative-time";
 import { StatusGlyph, type Shape, type Tone } from "@/components/broadsheet/status-badge";
+import { OUTCOME_GRACE_MINUTES } from "@/lib/interview-timing";
 import { cn } from "@/lib/utils";
 import type { ConnectionStatus } from "./socket-yjs-provider";
 
@@ -28,6 +30,10 @@ function formatClock(totalSeconds: number) {
 /**
  * Counts down to the end of the slot, then up as overtime. Starts empty and
  * fills in after mount: the server has no business rendering "now".
+ *
+ * Overtime stops counting once the grace period is over. Past that the room is
+ * being opened after the fact, not run long, and a clock reading
+ * "167:56:40 over" says nothing useful (handoff KI-10).
  */
 function TimeLeft({ scheduledAt, durationMins }: { scheduledAt: Date; durationMins: number }) {
   const [now, setNow] = useState<number | null>(null);
@@ -51,7 +57,9 @@ function TimeLeft({ scheduledAt, durationMins }: { scheduledAt: Date; durationMi
       ? `starts in ${formatClock(Math.round((start - now) / 1000))}`
       : now <= end
         ? `${formatClock(Math.round((end - now) / 1000))} left`
-        : `${formatClock(Math.round((now - end) / 1000))} over`;
+        : now < end + OUTCOME_GRACE_MINUTES * 60_000
+          ? `${formatClock(Math.round((now - end) / 1000))} over`
+          : `slot ended ${relativeTime(new Date(end), new Date(now))}`;
 
   return (
     <span className={cn("font-mono text-[13px] tabular-nums", now > end ? "text-warning" : "text-foreground/90")}>

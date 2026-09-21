@@ -1,14 +1,16 @@
 import Link from "next/link";
 import { LocalTime } from "@/components/broadsheet/local-time";
 import { PageHeader, SectionLabel } from "@/components/broadsheet/section";
-import { InterviewStatusBadge } from "@/components/broadsheet/status-badge";
+import { AwaitingOutcomeBadge, InterviewStatusBadge } from "@/components/broadsheet/status-badge";
 import { Button } from "@/components/ui/button";
+import { isAwaitingOutcome } from "@/lib/interview-timing";
 import { getInterviewList } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
 
 type InterviewListItem = Awaited<ReturnType<typeof getInterviewList>>["upcoming"][number];
 
 function InterviewRows({ interviews, userId }: { interviews: InterviewListItem[]; userId: string }) {
+  const now = new Date();
   return (
     <ul>
       {interviews.map((interview) => {
@@ -16,7 +18,9 @@ function InterviewRows({ interviews, userId }: { interviews: InterviewListItem[]
           participant.userId === userId ? "you" : participant.user.name,
         );
         const isParticipant = interview.participants.some((participant) => participant.userId === userId);
-        const live = interview.status === "SCHEDULED" || interview.status === "IN_PROGRESS";
+        // A slot long past is closed out from its detail page, not rejoined.
+        const awaitingOutcome = isAwaitingOutcome(interview, now);
+        const live = !awaitingOutcome && (interview.status === "SCHEDULED" || interview.status === "IN_PROGRESS");
         return (
           <li
             key={interview.id}
@@ -37,7 +41,7 @@ function InterviewRows({ interviews, userId }: { interviews: InterviewListItem[]
               </div>
             </div>
             <div className="flex items-center gap-4">
-              <InterviewStatusBadge status={interview.status} />
+              {awaitingOutcome ? <AwaitingOutcomeBadge /> : <InterviewStatusBadge status={interview.status} />}
               {live && isParticipant && (
                 <Button size="sm" variant="outline" nativeButton={false} render={<Link href={`/interview/${interview.id}`}>Join</Link>} />
               )}

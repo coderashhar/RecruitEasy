@@ -41,6 +41,7 @@ export function navigationFor(role: Role, counts: NavCounts = {}): NavSection[] 
             { href: "/candidate", label: "Overview" },
             { href: "/candidate/applications", label: "Applications", count: count(counts.applications) },
             { href: "/candidate/interviews", label: "Interviews", count: count(counts.upcomingInterviews) },
+            { href: "/notifications", label: "Notifications" },
             { href: "/candidate/practice", label: "Practice" },
             { href: "/jobs", label: "Browse jobs" },
           ],

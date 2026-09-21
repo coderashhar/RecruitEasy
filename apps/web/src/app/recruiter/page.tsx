@@ -8,6 +8,7 @@ import { PageHeader, SectionLabel } from "@/components/broadsheet/section";
 import { Button } from "@/components/ui/button";
 import { PipelineTable, type PipelineRow } from "@/components/pipeline/pipeline-table";
 import { getOrgAnalytics } from "@/lib/analytics";
+import { isAwaitingOutcome } from "@/lib/interview-timing";
 import { getRecruiterPipeline, getUpcomingInterviews } from "@/lib/queries";
 import { requireCurrentUser } from "@/lib/users";
 
@@ -41,9 +42,12 @@ export default async function RecruiterDashboard() {
   const now = new Date();
   // Only an interview you are in can be joined from here; the room admits
   // participants alone.
+  // An IN_PROGRESS interview whose slot ended long ago was left open, not
+  // being run: it belongs in "Next up" asking for an outcome, not here.
   const actNow = upcomingInterviews.find(
     (interview) =>
       interview.participants.some((participant) => participant.userId === user.id) &&
+      !isAwaitingOutcome(interview, now) &&
       (interview.status === "IN_PROGRESS" || interview.scheduledAt.getTime() - now.getTime() <= ACT_NOW_WINDOW_MS),
   );
   const nextUp = upcomingInterviews.filter((interview) => interview.id !== actNow?.id).slice(0, 5);
@@ -123,10 +127,14 @@ export default async function RecruiterDashboard() {
                   <Link href={`/recruiter/interviews/${interview.id}`} className="text-primary hover:underline">
                     Details
                   </Link>
-                  {interview.participants.some((participant) => participant.userId === user.id) && (
-                    <Link href={`/interview/${interview.id}`} className="text-primary hover:underline">
-                      Join
-                    </Link>
+                  {isAwaitingOutcome(interview, now) ? (
+                    <span className="text-warning">Outcome needed</span>
+                  ) : (
+                    interview.participants.some((participant) => participant.userId === user.id) && (
+                      <Link href={`/interview/${interview.id}`} className="text-primary hover:underline">
+                        Join
+                      </Link>
+                    )
                   )}
                 </div>
               </div>

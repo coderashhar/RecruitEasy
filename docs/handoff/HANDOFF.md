@@ -176,8 +176,8 @@ flowchart LR
 | KI-07 | Low | Analytics "Interviewers" table: the right-most column ("Outstanding") is clipped at ~1450 px wide | `app/recruiter/analytics/page.tsx` | Open analytics at desktop width |
 | KI-08 | Low | The candidate profile's status dropdown shows raw enum values (`INTERVIEWING`) while everywhere else shows "Interviewing" | `components/pipeline/application-status-select.tsx` | Open any candidate profile as a recruiter |
 | KI-09 | ~~Low~~ **Fixed** | **Post job** now redirects to `/recruiter/jobs` | `app/recruiter/jobs/new/actions.ts` | Post a job |
-| KI-10 | Low | Interviews whose slot has passed stay **Scheduled** and joinable; the room timer counts overtime indefinitely (e.g. "167:56:40 over") | By design (outcome must be recorded) but confusing | Open an old scheduled interview |
-| KI-11 | Info | Candidate notifications page (`/candidate/notifications`) isn't in the sidebar; the bell dropdown has no "view all" link | Navigation | — |
+| KI-10 | ~~Low~~ **Fixed** | Interviews whose slot has passed stay **Scheduled** — still by design, since only the people involved know whether it happened. What changed: 30 minutes after the slot ends (the join token's own grace period), the room clock stops counting overtime and reads "slot ended 3 days ago"; lists show **Outcome needed** (staff) or **Awaiting outcome** (candidate) instead of "Scheduled"; Join links are replaced by "Record outcome"; and the interview page asks for the outcome | `lib/interview-timing.ts` | Open an old scheduled interview |
+| KI-11 | ~~Info~~ **Fixed** | The notifications page wasn't in the sidebar, the bell dropdown had no "view all" link, and only candidates had a page at all — staff could never get back to a notification once read. It now lives at `/notifications` for every role (`/candidate/notifications` redirects there), is linked from the candidate sidebar and from **View all notifications** in the bell, and shows times in the viewer's timezone instead of the server's | `app/notifications`, `components/layout/notification-bell.tsx` | Open the bell, click **View all notifications** |
 | KI-12 | Info | Application status can move from any state to any state (e.g. Rejected → Interviewing); there's no state machine | `lib/applications.ts` | Change status in the pipeline |
 | KI-13 | Info | Closing a deletion request whose account is already gone is recorded as **Declined** with the reason "The account was already removed." | `components/privacy/deletion-request-actions.tsx` | Needs a request whose user row was deleted |
 | KI-14 | Info | In development, the Next.js dev-tools badge covers the sidebar's "Light" theme button | Dev only | `npm run dev` |
@@ -484,7 +484,7 @@ Every page then **re-checks** with `requireCurrentUser([...roles])`. A wrong rol
 | P07 | ATS report | `/candidate/applications/[id]/ats` | CANDIDATE (own application) | ⚠️ manual |
 | P08 | Candidate interviews | `/candidate/interviews` | CANDIDATE | ✅ |
 | P09 | Practice | `/candidate/practice` | CANDIDATE | ✅ |
-| P10 | Notifications | `/candidate/notifications` | CANDIDATE | ✅ |
+| P10 | Notifications | `/notifications` | All roles | ✅ |
 | P11 | Your data (privacy) | `/candidate/data` | CANDIDATE | ✅ |
 | P12 | Open positions | `/jobs` | CANDIDATE | ✅ |
 | P13 | Job detail & apply | `/jobs/[id]` | CANDIDATE | ✅ |
@@ -597,8 +597,8 @@ Every page then **re-checks** with `requireCurrentUser([...roles])`. A wrong rol
 - **DB:** W/R `rate_limit_hits` (key `practice:<userId>`).
 - **Errors:** "You've used all 30 practice runs for this hour. Try again later."; Judge0 down gives a FAILED result and the run is refunded.
 
-#### P10 · Notifications — `/candidate/notifications`
-- **UI:** Last 50 notifications. Unread ones have a blue left rule; read ones are dimmed. Each links to its target. **Mark all read** appears when anything is unread.
+#### P10 · Notifications — `/notifications`
+- **UI:** Every role; reached from the candidate sidebar and the bell's **View all notifications**. `/candidate/notifications` redirects here. Last 50 notifications. Unread ones have a blue left rule; read ones are dimmed. Each links to its target. **Mark all read** appears when anything is unread.
 - **API:** `POST /api/notifications {all:true}`.
 - **DB:** R/W `notifications`.
 - **Empty state:** "No notifications yet."
@@ -1097,7 +1097,7 @@ All screenshots below were captured from the **running application** on 16 Sep 2
 **Expected behavior:** Amber banner, no vendor names, no environment variables, no stack traces.
 
 ### Page: Notifications
-**Route:** `/candidate/notifications`
+**Route:** `/notifications` (any role; `/candidate/notifications` redirects)
 
 ![Notifications](screenshots/candidate-notifications.png)
 
@@ -1225,7 +1225,7 @@ These states need data or services that weren't available during this capture. C
 | CAND-16 (R) | Privacy | Request deletion | CAND, no pending request | 1. Your data → Request deletion of my data<br>2. Send request | — | Toast "Request sent…"; banner "Deletion requested"; DB `data_deletion_requests` PENDING; each ADMIN gets a notification | | | |
 | CAND-17 | Privacy | Request twice | CAND-16 | 1. Reload Your data | — | No button; single PENDING row in DB | | | |
 | CAND-18 | Privacy | Dialog cancel | No pending request | 1. Open dialog<br>2. Keep my data | — | Dialog closes; nothing created | | | |
-| CAND-19 | Notifications | Page and mark all read | CAND with unread notices | 1. Open `/candidate/notifications`<br>2. Mark all read | — | Unread styling removed; bell badge disappears within 30 s | | | |
+| CAND-19 | Notifications | Page and mark all read | CAND with unread notices | 1. Open the bell, then **View all notifications**<br>2. Mark all read | — | Unread styling removed; bell badge disappears within 30 s | | | |
 
 #### Recruiter: pipeline, profile, jobs, compare
 

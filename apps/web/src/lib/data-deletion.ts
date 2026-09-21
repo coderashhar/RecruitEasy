@@ -239,3 +239,36 @@ export async function rejectDeletionRequest(orgId: string, adminId: string, requ
     });
   }
 }
+
+/**
+ * Closes a request whose account is already gone — its user row was deleted
+ * some other way, which nulled `userId`. There is nothing left to delete and
+ * nobody to tell, so it is neither completed by us nor declined.
+ *
+ * Its own status (CLOSED) rather than REJECTED, which is what the admin UI
+ * used to record: in a GDPR record, "declined" says the organisation refused
+ * a deletion, and that never happened (handoff KI-13).
+ *
+ * Only for requests with no account: a Server Action is directly invocable,
+ * and closing a live request would clear it from the queue without either
+ * deleting anything or telling the candidate why.
+ */
+export async function closeOrphanedDeletionRequest(orgId: string, adminId: string, requestId: string) {
+  const request = await loadPending(orgId, requestId);
+  if (request.userId !== null) {
+    throw new DataDeletionError("This account still exists. Approve or decline the request instead.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // userId pinned too: the check above ran outside this transaction.
+    const { count } = await tx.dataDeletionRequest.updateMany({
+      where: { id: request.id, status: "PENDING", userId: null },
+      data: { status: "CLOSED", processedAt: new Date(), processedById: adminId },
+    });
+    if (count === 0) throw new DataDeletionError("Someone else already processed this request.");
+
+    await tx.auditLog.create({
+      data: { orgId, actorId: adminId, action: "privacy.deletion_closed", target: request.id },
+    });
+  });
+}

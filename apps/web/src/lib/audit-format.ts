@@ -104,6 +104,8 @@ export function describeAuditAction(action: string, rawMeta: unknown): AuditSent
       };
     case "privacy.deletion_rejected":
       return { parts: [text("Declined a deletion request")] };
+    case "privacy.deletion_closed":
+      return { parts: [text("Closed a deletion request · account already gone, nothing to delete")] };
     default:
       return { parts: [text(action)] };
   }

@@ -86,7 +86,7 @@ export default async function DeletionRequestsPage() {
         ) : (
           <>
             <p className="pt-3 text-[13px] text-muted-foreground">
-              Completed requests no longer show who asked — that was part of what got deleted.
+              Completed and closed requests no longer show who asked — that was part of what got deleted.
             </p>
             {processed.map((request) => (
               <div
@@ -97,6 +97,11 @@ export default async function DeletionRequestsPage() {
                   {request.status === "COMPLETED" ? (
                     <StatusBadge tone="success" shape="square">
                       Deleted
+                    </StatusBadge>
+                  ) : request.status === "CLOSED" ? (
+                    // Account already gone: nothing deleted here, nothing refused.
+                    <StatusBadge tone="neutral" shape="hollow">
+                      Closed · nothing to delete
                     </StatusBadge>
                   ) : (
                     <StatusBadge tone="danger" shape="bar">

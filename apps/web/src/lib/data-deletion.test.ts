@@ -56,9 +56,13 @@ vi.mock("@clerk/nextjs/server", () => ({
   clerkClient: async () => ({ users: { deleteUser: track("clerk.deleteUser", (...a) => m.clerkDeleteUser(...a)) } }),
 }));
 
-const { requestDataDeletion, processDeletionRequest, rejectDeletionRequest, DataDeletionError } = await import(
-  "./data-deletion.js"
-);
+const {
+  requestDataDeletion,
+  processDeletionRequest,
+  rejectDeletionRequest,
+  closeOrphanedDeletionRequest,
+  DataDeletionError,
+} = await import("./data-deletion.js");
 
 const CANDIDATE = { id: "user_c", orgId: "org_1", role: "CANDIDATE" };
 const PENDING = {
@@ -198,5 +202,40 @@ describe("rejectDeletionRequest", () => {
       data: expect.objectContaining({ status: "REJECTED", reason: "An offer is still open under this application.", processedById: "admin_1" }),
     });
     expect(m.notifyUser).toHaveBeenCalledWith("user_c", expect.objectContaining({ type: "privacy.deletion_rejected" }));
+  });
+});
+
+describe("closeOrphanedDeletionRequest", () => {
+  const ORPHAN = { ...PENDING, userId: null, user: null };
+
+  test("records CLOSED, not REJECTED, and tells nobody", async () => {
+    m.requestFindFirst.mockResolvedValue(ORPHAN);
+
+    await closeOrphanedDeletionRequest("org_1", "admin_1", "req_1");
+
+    expect(m.requestUpdateMany).toHaveBeenCalledWith({
+      where: { id: "req_1", status: "PENDING", userId: null },
+      data: expect.objectContaining({ status: "CLOSED", processedById: "admin_1" }),
+    });
+    expect(m.auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: "privacy.deletion_closed", target: "req_1" }),
+    });
+    expect(m.notifyUser).not.toHaveBeenCalled();
+  });
+
+  test("refuses a request whose account still exists, before any write", async () => {
+    // Closing a live request would clear it without deleting or explaining.
+    m.requestFindFirst.mockResolvedValue(PENDING);
+
+    await expect(closeOrphanedDeletionRequest("org_1", "admin_1", "req_1")).rejects.toThrow(DataDeletionError);
+    expect(m.requestUpdateMany).not.toHaveBeenCalled();
+  });
+
+  test("losing a race to another admin is reported, not silently repeated", async () => {
+    m.requestFindFirst.mockResolvedValue(ORPHAN);
+    m.requestUpdateMany.mockResolvedValue({ count: 0 });
+
+    await expect(closeOrphanedDeletionRequest("org_1", "admin_1", "req_1")).rejects.toThrow(/already processed/);
+    expect(m.auditCreate).not.toHaveBeenCalled();
   });
 });

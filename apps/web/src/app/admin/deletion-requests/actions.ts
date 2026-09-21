@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  closeOrphanedDeletionRequest,
   DataDeletionError,
   getDeletionScope,
   processDeletionRequest,
@@ -39,6 +40,18 @@ export async function rejectDeletion(requestId: string, reason: string): Promise
   const { user } = await requireCurrentUser(["ADMIN"]);
   try {
     await rejectDeletionRequest(user.orgId, user.id, requestId, reason);
+    revalidatePath("/admin/deletion-requests", "layout");
+    return {};
+  } catch (err) {
+    if (err instanceof DataDeletionError) return { error: err.message };
+    throw err;
+  }
+}
+
+export async function closeDeletion(requestId: string): Promise<{ error?: string }> {
+  const { user } = await requireCurrentUser(["ADMIN"]);
+  try {
+    await closeOrphanedDeletionRequest(user.orgId, user.id, requestId);
     revalidatePath("/admin/deletion-requests", "layout");
     return {};
   } catch (err) {

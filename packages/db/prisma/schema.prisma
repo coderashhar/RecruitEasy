@@ -420,6 +420,10 @@ enum DataDeletionStatus {
   PENDING
   COMPLETED
   REJECTED
+  // The account was already gone when an admin got to the request, so there
+  // was nothing to delete and nothing was refused. Recording these as
+  // REJECTED made the compliance record say the org declined a deletion.
+  CLOSED
 }
 
 // A candidate's request to have their data removed (PRD §9: candidates can

@@ -174,9 +174,6 @@ describe("updateApplicationStatus", () => {
     });
   });
 
-  // Deliberately no transition-matrix test: any status to any other is a
-  // legitimate recruiter correction, unlike the interview lifecycle's real
-  // transition constraints.
   test("a concurrent change (0 rows matched) -> rejected, no audit log written", async () => {
     updateApplication.mockResolvedValue({ count: 0 });
 
@@ -186,14 +183,53 @@ describe("updateApplicationStatus", () => {
     expect(createAuditLog).not.toHaveBeenCalled();
   });
 
-  test("moving backwards (e.g. REJECTED -> SCREENING) is allowed", async () => {
-    findFirstApplication.mockResolvedValue({ id: "app_1", status: "REJECTED" });
-    updateApplication.mockResolvedValue({ count: 1 });
+  test("moving back between open stages needs no confirmation", async () => {
+    findFirstApplication.mockResolvedValue({ id: "app_1", status: "INTERVIEWING" });
     findUniqueOrThrowApplication.mockResolvedValue({ id: "app_1", status: "SCREENING" });
 
     await expect(
       updateApplicationStatus(ORG_ID, ACTOR_ID, { applicationId: "app_1", status: "SCREENING" }),
     ).resolves.toEqual({ id: "app_1", status: "SCREENING" });
+  });
+
+  test("the status it already has -> nothing written, nothing audited", async () => {
+    // Bulk "Move to" over a selection used to re-send these candidates the
+    // same status email.
+    findFirstApplication.mockResolvedValue({ id: "app_1", status: "OFFER" });
+
+    await expect(updateApplicationStatus(ORG_ID, ACTOR_ID, statusInput)).resolves.toEqual({
+      id: "app_1",
+      status: "OFFER",
+    });
+    expect(updateApplication).not.toHaveBeenCalled();
+    expect(createAuditLog).not.toHaveBeenCalled();
+  });
+
+  test("overturning a decision without confirmation -> refused before any write", async () => {
+    // Server-side, not just in the <select>: a Server Action is directly invocable.
+    findFirstApplication.mockResolvedValue({ id: "app_1", status: "REJECTED" });
+
+    await expect(
+      updateApplicationStatus(ORG_ID, ACTOR_ID, { applicationId: "app_1", status: "SCREENING" }),
+    ).rejects.toThrow(/already rejected/i);
+    expect(updateApplication).not.toHaveBeenCalled();
+  });
+
+  test("a confirmed overturn goes through and is marked as one in the audit log", async () => {
+    findFirstApplication.mockResolvedValue({ id: "app_1", status: "REJECTED" });
+    findUniqueOrThrowApplication.mockResolvedValue({ id: "app_1", status: "SCREENING" });
+
+    await updateApplicationStatus(ORG_ID, ACTOR_ID, {
+      applicationId: "app_1",
+      status: "SCREENING",
+      confirmOverturn: true,
+    });
+
+    expect(createAuditLog).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        meta: { from: "REJECTED", to: "SCREENING", overturned: true },
+      }),
+    });
   });
 });
 

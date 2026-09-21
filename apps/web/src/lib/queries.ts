@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma, type Prisma } from "@interviewhub/db";
 import { INTERVIEWER_CAPABLE_ROLES } from "@interviewhub/types";
+import { INTEGRITY_SIGNALS_SHOWN, summarizeIntegritySignals, type IntegritySignalSummary } from "./integrity";
 
 /**
  * Read side for both dashboards.
@@ -154,7 +155,9 @@ export async function getInterviewDetail(orgId: string, interviewId: string) {
         include: { user: { select: { id: true, name: true, role: true } } },
       },
       codeDocument: true,
-      integritySignals: { orderBy: { occurredAt: "asc" } },
+      // Only the rows the page lists. Totals come from getIntegritySignalSummary,
+      // so an interview with thousands of signals doesn't load them all.
+      integritySignals: { orderBy: { occurredAt: "asc" }, take: INTEGRITY_SIGNALS_SHOWN },
       chatMessages: {
         orderBy: { createdAt: "asc" },
         include: { user: { select: { name: true } } },
@@ -165,6 +168,23 @@ export async function getInterviewDetail(orgId: string, interviewId: string) {
       },
     },
   });
+}
+
+/**
+ * Per-type signal counts for one interview, counted in the database. Scoped
+ * through the interview to the org, like getInterviewDetail, so the two can
+ * run in parallel off the same URL id without either trusting it.
+ */
+export async function getIntegritySignalSummary(
+  orgId: string,
+  interviewId: string,
+): Promise<IntegritySignalSummary> {
+  const rows = await prisma.integritySignal.groupBy({
+    by: ["type"],
+    where: { interviewId, interview: { application: { job: { orgId } } } },
+    _count: { _all: true },
+  });
+  return summarizeIntegritySignals(rows.map((row) => ({ type: row.type, count: row._count._all })));
 }
 
 /**

@@ -9,8 +9,8 @@ import { Button } from "@/components/ui/button";
 import { InterviewStatusActions } from "@/components/interview/interview-status-actions";
 import { RecordingPlayer } from "@/components/interview/recording-player";
 import { INTERVIEWER_STATUS_MOVES } from "@/lib/interview-lifecycle";
-import { describeIntegritySignal, INTEGRITY_SIGNAL_LABEL } from "@/lib/integrity";
-import { getInterviewDetail, getPotentialInterviewers } from "@/lib/queries";
+import { describeIntegritySignal } from "@/lib/integrity";
+import { getIntegritySignalSummary, getInterviewDetail, getPotentialInterviewers } from "@/lib/queries";
 import { getRecordingForReview } from "@/lib/recording";
 import { requireCurrentUser } from "@/lib/users";
 import { FeedbackForm } from "./feedback-form";
@@ -25,9 +25,10 @@ export default async function InterviewDetailPage({
   const { id } = await params;
   const { user, role } = await requireCurrentUser(["RECRUITER", "INTERVIEWER", "ADMIN"]);
 
-  const [interview, recording] = await Promise.all([
+  const [interview, recording, signalSummary] = await Promise.all([
     getInterviewDetail(user.orgId, id),
     getRecordingForReview(user.orgId, id),
+    getIntegritySignalSummary(user.orgId, id),
   ]);
   if (!interview) notFound();
 
@@ -57,18 +58,10 @@ export default async function InterviewDetailPage({
       )
     : [];
 
-  // A candidate who alt-tabs a lot can leave hundreds of TAB_BLUR rows — cap
-  // the list so the page stays a readable length, and fall back to counts.
-  const MAX_INTEGRITY_SIGNALS_SHOWN = 20;
-  const shownSignals = interview.integritySignals.slice(0, MAX_INTEGRITY_SIGNALS_SHOWN);
-  const hiddenSignalCount = interview.integritySignals.length - shownSignals.length;
-  const signalCountsByType = interview.integritySignals.reduce<Partial<Record<string, number>>>(
-    (counts, signal) => {
-      counts[signal.type] = (counts[signal.type] ?? 0) + 1;
-      return counts;
-    },
-    {},
-  );
+  // The query already capped the list at INTEGRITY_SIGNALS_SHOWN; the totals
+  // come from a separate count, so the page never holds every row.
+  const shownSignals = interview.integritySignals;
+  const hiddenSignalCount = signalSummary.total - shownSignals.length;
 
   return (
     <div className="flex max-w-[960px] flex-col">
@@ -294,18 +287,16 @@ export default async function InterviewDetailPage({
           </section>
 
           <section aria-labelledby="integrity">
-            <SectionLabel id="integrity" aside={interview.integritySignals.length > 0 ? "advisory only" : undefined}>
+            <SectionLabel id="integrity" aside={signalSummary.total > 0 ? "advisory only" : undefined}>
               Integrity signals
             </SectionLabel>
-            {interview.integritySignals.length === 0 ? (
+            {signalSummary.total === 0 ? (
               <p className="py-3.5 text-sm text-muted-foreground">None recorded.</p>
             ) : (
               <>
                 {hiddenSignalCount > 0 && (
                   <p className="pt-3.5 text-[13px] text-muted-foreground">
-                    {Object.entries(signalCountsByType)
-                      .map(([type, count]) => `${INTEGRITY_SIGNAL_LABEL[type as keyof typeof INTEGRITY_SIGNAL_LABEL]} × ${count}`)
-                      .join(" · ")}
+                    {signalSummary.byType.map(({ label, count }) => `${label} × ${count}`).join(" · ")}
                   </p>
                 )}
                 {shownSignals.map((signal) => (

@@ -35,3 +35,30 @@ export function describeIntegritySignal(type: IntegritySignalType, payload: unkn
   }
   return label;
 }
+
+/**
+ * How many signals the review page lists one by one. Past this it shows
+ * per-type counts instead: a candidate who alt-tabs through a two-hour
+ * interview can leave thousands of TAB_BLUR rows, and listing them all made
+ * the page several screens of the same line (handoff KI-03).
+ */
+export const INTEGRITY_SIGNALS_SHOWN = 20;
+
+export interface IntegritySignalSummary {
+  total: number;
+  /** In INTEGRITY_SIGNAL_LABEL's order, so the line reads the same every time. Zero counts omitted. */
+  byType: { type: IntegritySignalType; label: string; count: number }[];
+}
+
+/** Totals from per-type counts — the shape a `groupBy` on the signal type returns. */
+export function summarizeIntegritySignals(
+  counts: { type: IntegritySignalType; count: number }[],
+): IntegritySignalSummary {
+  const byType = (Object.keys(INTEGRITY_SIGNAL_LABEL) as IntegritySignalType[]).flatMap((type) => {
+    const count = counts
+      .filter((entry) => entry.type === type)
+      .reduce((sum, entry) => sum + entry.count, 0);
+    return count > 0 ? [{ type, label: INTEGRITY_SIGNAL_LABEL[type], count }] : [];
+  });
+  return { total: byType.reduce((sum, entry) => sum + entry.count, 0), byType };
+}

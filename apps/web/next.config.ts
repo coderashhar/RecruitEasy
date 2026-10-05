@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // pdf-parse and mammoth are Node.js-only packages used in server actions for
+  // resume parsing. Turbopack resolves the "browser" export condition of
+  // pdf-parse and loads its browser/web-worker build instead of the Node.js
+  // CJS build, causing "Invalid PDF structure" errors at runtime. Marking them
+  // as serverExternalPackages skips bundling and lets Node require() them
+  // directly, which resolves the correct "require" export path.
+  serverExternalPackages: ["pdf-parse", "mammoth"],
   turbopack: {
     resolveAlias: {
       // y-monaco@0.1.6 hardcodes `monaco-editor/esm/vs/editor/editor.api.js`,
